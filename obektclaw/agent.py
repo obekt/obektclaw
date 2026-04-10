@@ -23,37 +23,9 @@ from .config import Config
 from .llm import LLMClient, LLMResponse, TokenUsage
 from .memory import PersistentMemory, SessionMemory, UserModel
 from .memory.store import Store
+from .model_context import get_context_window, save_user_model_override
 from .skills import SkillManager
 from .tools import ToolContext, ToolRegistry, build_default_registry
-
-
-# ── Context window sizes by model name patterns ────────────────────────────
-_CONTEXT_WINDOWS: list[tuple[str, int]] = [
-    ("gpt-4o", 128_000),
-    ("gpt-4-turbo", 128_000),
-    ("gpt-4", 8_192),
-    ("gpt-3.5", 16_385),
-    ("claude-3", 200_000),
-    ("claude-2", 100_000),
-    ("claude", 200_000),
-    ("llama3", 8_192),
-    ("llama-3.1", 128_000),
-    ("llama-3.2", 128_000),
-    ("mistral", 32_000),
-    ("mixtral", 32_000),
-    ("gemma", 8_192),
-    ("qwen", 32_000),
-    ("deepseek", 128_000),
-    ("command-r", 128_000),
-]
-
-
-def _guess_context_window(model: str) -> int:
-    m = model.lower()
-    for pattern, size in _CONTEXT_WINDOWS:
-        if pattern in m:
-            return size
-    return 128_000
 
 
 SYSTEM_PROMPT = """You are obektclaw, a self-improving personal AI agent.
@@ -134,10 +106,19 @@ class Agent:
                     print(f"[warning] {msg}", file=sys.stderr)
                     self.session.add("system", msg)
 
-        # Context window management — explicit config wins, else guess from model name
-        self.context_window = config.context_window or _guess_context_window(config.llm_model)
+        # Context window management — explicit config wins, else detect from model name
+        # Detection checks: user overrides → built-in exact → built-in patterns → default
+        detected_window = get_context_window(config.llm_model, config.home)
+        self.context_window = config.context_window or detected_window
         self.last_usage: TokenUsage | None = None
         self.turn_tokens: int = 0  # total tokens used in current turn
+
+        # Log context window detection at startup
+        source = "config" if config.context_window else "auto-detected"
+        print(
+            f"[agent] model={config.llm_model}, context_window={self.context_window:,} tokens ({source})",
+            file=sys.stderr,
+        )
 
         # Log MCP success if servers were loaded
         if self._mcp_servers:
@@ -177,9 +158,16 @@ class Agent:
             _fn("thinking...")
 
         for _ in range(max_steps):
-            # Truncate mid-turn if context is getting full
-            if self._context_pressure() > 0.75:
-                messages = self._truncate_messages(messages)
+            # Auto-compact context at 85% pressure (before truncation kicks in)
+            if self._context_pressure() > self.COMPACTION_PRESSURE:
+                self._status("compacting context...")
+                compact_result = self.compact_context()
+                if compact_result["compacted"]:
+                    # Rebuild messages after compaction
+                    messages = self._build_messages(user_text)
+                elif self._context_pressure() > 0.75:
+                    # Compaction failed or didn't happen, fall back to truncation
+                    messages = self._truncate_messages(messages)
 
             try:
                 resp: LLMResponse = self.llm.chat(messages, tools=self.registry.to_openai_tools())
@@ -268,13 +256,215 @@ class Agent:
                 except Exception:
                     pass
 
+    def switch_model(
+        self,
+        model: str,
+        fast_model: str | None = None,
+        context_window: int | None = None,
+        persist: bool = True,
+    ) -> dict:
+        """Switch to a different model at runtime.
+        
+        Args:
+            model: New model name for main reasoning/tool use.
+            fast_model: New model name for Learning Loop (defaults to model).
+            context_window: Override context window size (0 = auto-detect).
+            persist: If True, save to ~/.obektclaw/models.json for future sessions.
+        
+        Returns:
+            Dict with keys: model, fast_model, context_window, was_overridden
+        """
+        # Update LLM client
+        fast = fast_model or model
+        self.llm = LLMClient(
+            base_url=self.config.llm_base_url,
+            api_key=self.config.llm_api_key,
+            model=model,
+            fast_model=fast,
+        )
+        
+        # Determine context window
+        if context_window and context_window > 0:
+            # Explicit override
+            new_window = context_window
+            was_overridden = True
+            if persist:
+                save_user_model_override(self.config.home, model, context_window)
+        else:
+            # Auto-detect
+            new_window = get_context_window(model, self.config.home)
+            was_overridden = False
+        
+        self.context_window = new_window
+        
+        # Log the switch
+        self.session.add(
+            "system",
+            f"Model switched from {self.config.llm_model} → {model} "
+            f"(context: {new_window:,} tokens)",
+        )
+        
+        return {
+            "model": model,
+            "fast_model": fast,
+            "context_window": new_window,
+            "was_overridden": was_overridden,
+        }
+
     # ----- context management -----
+
+    # Compaction thresholds
+    COMPACTION_PRESSURE = 0.85  # Auto-compact at 85% context usage
+    COMPACTION_KEEP_TURNS = 6   # Keep last 6 turns (12 messages) raw
+    COMPACTION_MAX_SUMMARY = 1000  # Max tokens for summary
+
     def _context_pressure(self) -> float:
         """Return 0.0–1.0 indicating how full the context window is."""
         if not self.last_usage:
             return 0.0
         used = self.last_usage.prompt_tokens + self.last_usage.completion_tokens
         return min(used / self.context_window, 1.0) if self.context_window else 0.0
+
+    def compact_context(self, *, force: bool = False) -> dict:
+        """Compact conversation history using LLM summarization.
+
+        Reads the older conversation turns, generates a concise summary
+        preserving goals/decisions/context, and replaces them with a single
+        system message. Keeps recent turns raw for continuity.
+
+        Args:
+            force: If True, compact regardless of context pressure.
+
+        Returns:
+            Dict with keys: compacted (bool), reason (str), summary_length (int),
+                           tokens_saved (int), error (str|None)
+        """
+        # Check if compaction is needed
+        pressure = self._context_pressure()
+        if not force and pressure < self.COMPACTION_PRESSURE:
+            return {
+                "compacted": False,
+                "reason": f"Context pressure too low ({pressure:.0%} < {self.COMPACTION_PRESSURE:.0%})",
+                "summary_length": 0,
+                "tokens_saved": 0,
+                "error": None,
+            }
+
+        # Get recent session history
+        recent = self.session.recent(limit=100)
+        if len(recent) <= self.COMPACTION_KEEP_TURNS * 2 + 2:
+            return {
+                "compacted": False,
+                "reason": "Conversation too short to compact",
+                "summary_length": 0,
+                "tokens_saved": 0,
+                "error": None,
+            }
+
+        # Split: keep recent turns raw, compact the rest
+        keep_count = self.COMPACTION_KEEP_TURNS * 2  # user + assistant pairs
+        to_compact = recent[:-keep_count] if keep_count < len(recent) else []
+
+        if not to_compact:
+            return {
+                "compacted": False,
+                "reason": "No old messages to compact",
+                "summary_length": 0,
+                "tokens_saved": 0,
+                "error": None,
+            }
+
+        # Estimate tokens to compact
+        old_tokens = sum(len(msg.content.split()) * 1.3 for msg in to_compact)
+
+        # Build compacting prompt
+        compact_prompt = (
+            "Summarize this conversation history concisely. Preserve:\n"
+            "- User's goals, requests, and preferences\n"
+            "- Key decisions made and why\n"
+            "- Important context about files, code, or environment\n"
+            "- Any unresolved issues or ongoing work\n\n"
+            "Omit: pleasantries, repetitive turns, resolved debugging.\n"
+            "Be terse. Max 500 words.\n\n"
+            "Conversation to summarize:\n"
+        )
+
+        messages_to_summarize = [
+            {"role": msg.role, "content": msg.content}
+            for msg in to_compact
+            if msg.role in ("user", "assistant", "system")
+        ]
+
+        if not messages_to_summarize:
+            return {
+                "compacted": False,
+                "reason": "No user/assistant messages to summarize",
+                "summary_length": 0,
+                "tokens_saved": 0,
+                "error": None,
+            }
+
+        try:
+            # Use fast model for compaction (saves cost)
+            summary_resp = self.llm.chat(
+                [
+                    {"role": "system", "content": compact_prompt},
+                    *messages_to_summarize,
+                ],
+                fast=True,
+                max_tokens=self.COMPACTION_MAX_SUMMARY,
+            )
+
+            summary = summary_resp.content.strip()
+            if not summary:
+                return {
+                    "compacted": False,
+                    "reason": "LLM returned empty summary",
+                    "summary_length": 0,
+                    "tokens_saved": 0,
+                    "error": None,
+                }
+
+            # Delete old messages from session memory
+            for msg in to_compact:
+                self.store.execute(
+                    "DELETE FROM messages WHERE id = ?",
+                    (msg.id,),
+                )
+
+            # Insert summary as a system message
+            summary_msg = self.store.fetchone(
+                """
+                INSERT INTO messages (session_id, role, content, ts)
+                VALUES (?, 'system', ?, CURRENT_TIMESTAMP)
+                RETURNING id
+                """,
+                (self.session_id, f"[compacted conversation summary]\n{summary}"),
+            )
+
+            # Log the compaction
+            self.session.add(
+                "system",
+                f"Context compacted: {len(to_compact)} turns → summary "
+                f"(~{int(old_tokens)} tokens → {len(summary.split())} tokens)",
+            )
+
+            return {
+                "compacted": True,
+                "reason": "Success",
+                "summary_length": len(summary.split()),
+                "tokens_saved": int(old_tokens - len(summary.split())),
+                "error": None,
+            }
+
+        except Exception as e:
+            return {
+                "compacted": False,
+                "reason": "Compaction failed",
+                "summary_length": 0,
+                "tokens_saved": 0,
+                "error": str(e),
+            }
 
     def _truncate_messages(self, messages: list[dict]) -> list[dict]:
         """Drop older conversation turns (keeping system + latest user) when

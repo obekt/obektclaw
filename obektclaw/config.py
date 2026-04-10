@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+_PLACEHOLDER_VALUES = {"your-api-key-here", "sk-xxx", "sk-your-key", ""}
+
+
 def _read_env_file(env_path: Path) -> None:
-    """Read a .env file and set vars that aren't already in os.environ."""
+    """Read a .env file and set vars that aren't already set to a meaningful value."""
     if not env_path.exists():
         return
     for raw in env_path.read_text().splitlines():
@@ -17,16 +20,23 @@ def _read_env_file(env_path: Path) -> None:
         k, _, v = line.partition("=")
         k = k.strip()
         v = v.strip().strip('"').strip("'")
-        os.environ.setdefault(k, v)
+        # Skip placeholder values — they're not meaningful config
+        if v in _PLACEHOLDER_VALUES:
+            continue
+        # Only skip if already set to a non-empty value
+        existing = os.environ.get(k, "")
+        if existing:
+            continue
+        os.environ[k] = v
 
 
 def _load_dotenv() -> None:
-    # 1. User home config (~/.obektclaw/.env) — primary location
-    home = Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
-    _read_env_file(home / ".env")
-    # 2. Project-local .env — dev override (lower priority, won't overwrite)
+    # 1. Project-local .env first — lower priority (dev defaults)
     project_env = Path(__file__).resolve().parent.parent / ".env"
     _read_env_file(project_env)
+    # 2. User home config (~/.obektclaw/.env) — higher priority (user's real config)
+    home = Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
+    _read_env_file(home / ".env")
 
 
 _load_dotenv()

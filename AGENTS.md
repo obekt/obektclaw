@@ -45,8 +45,10 @@ obektclaw/
     ├── config.py              ← .env loader + Config dataclass + global CONFIG
     ├── llm.py                 ← OpenAI-compatible LLMClient with chat() / chat_json()
     ├── agent.py               ← The ReAct loop. Single-threaded, per-session.
+    │                           Now includes context compaction at 85% pressure.
     ├── learning.py            ← The Learning Loop (post-turn retrospection)
     ├── mcp.py                 ← Minimal stdio JSON-RPC MCP client
+    ├── model_context.py       ← Context window detection + runtime model switching
     │
     ├── memory/
     │   ├── __init__.py
@@ -75,7 +77,7 @@ obektclaw/
         └── telegram.py        ← Long-poll bot, one Agent per chat_id
 ```
 
-Total: **16 built-in tools**, **12 user-model layers**, **3 bundled skills**, **~2,472 lines of Python**.
+Total: **16 built-in tools**, **12 user-model layers**, **3 bundled skills**, **~4,000 lines of Python** (including tests).
 
 ---
 

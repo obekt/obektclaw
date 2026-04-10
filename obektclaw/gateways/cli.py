@@ -26,6 +26,7 @@ from rich import box
 from ..agent import Agent
 from ..config import CONFIG, load_config
 from ..memory.store import Store
+from ..model_context import get_context_window, list_known_models, guess_context_window
 from ..skills import SkillManager
 
 # Initialize Rich console
@@ -39,6 +40,8 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/skills",     "List known skills"),
     ("/memory",     "Search persistent memory  (/memory <query>)"),
     ("/traits",     "Show your user model"),
+    ("/model",      "Show or change the current LLM model"),
+    ("/compact",    "Compact conversation history to save context"),
     ("/setup",      "Guided setup (Telegram, MCP, etc.)"),
     ("/exit",       "Quit the session"),
 ]
@@ -178,6 +181,8 @@ def show_help():
         ("/skills", "list skills"),
         ("/memory <q>", "search memory"),
         ("/traits", "show user model"),
+        ("/model", "show/change LLM model"),
+        ("/compact", "compact conversation history"),
         ("/setup", "configure integrations"),
         ("/exit", "quit"),
     ]
@@ -537,6 +542,109 @@ def run() -> int:
                 continue
             if line == "/setup":
                 show_setup(config)
+                continue
+            if line.startswith("/model"):
+                args = line[len("/model"):].strip()
+                if not args:
+                    # Show current model
+                    detected = get_context_window(config.llm_model, config.home)
+                    console.print()
+                    console.print(Panel(
+                        f"[cyan]Current Model:[/cyan] {config.llm_model}\n"
+                        f"[cyan]Fast Model:[/cyan] {config.llm_fast_model}\n"
+                        f"[cyan]Context Window:[/cyan] {agent.context_window:,} tokens "
+                        f"(detected: {detected:,})",
+                        title="[cyan]Model Info[/cyan]",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                    ))
+                    console.print()
+                    console.print("  [dim]Usage: /model <name> [context_window][/dim]")
+                    console.print("  [dim]Example: /model gpt-4o 128000[/dim]")
+                    console.print()
+                elif args in ("list", "ls", "-l"):
+                    # Show known models
+                    models = list_known_models()
+                    console.print()
+                    console.print(f"[bold cyan]Known Models ({len(models)})[/bold cyan]")
+                    console.print(Rule(style="cyan"))
+
+                    table = Table(box=box.SIMPLE, padding=(0, 1))
+                    table.add_column("Model", style="bold cyan")
+                    table.add_column("Context", justify="right", style="green")
+                    table.add_column("Source", style="dim")
+
+                    for m in models:
+                        table.add_row(
+                            m["name"],
+                            f"{m['context_window']:,}",
+                            m["source"],
+                        )
+                    console.print(table)
+                    console.print()
+                else:
+                    # Switch model
+                    parts = args.split()
+                    new_model = parts[0]
+                    new_context = None
+                    
+                    if len(parts) > 1:
+                        try:
+                            new_context = int(parts[1])
+                        except ValueError:
+                            console.print(f"  [red]Invalid context window: {parts[1]}[/red]")
+                            continue
+                    
+                    try:
+                        result = agent.switch_model(
+                            model=new_model,
+                            context_window=new_context,
+                        )
+                        console.print()
+                        console.print(Panel(
+                            f"[green]✓ Model switched successfully[/green]\n\n"
+                            f"[cyan]Model:[/cyan] {result['model']}\n"
+                            f"[cyan]Fast Model:[/cyan] {result['fast_model']}\n"
+                            f"[cyan]Context Window:[/cyan] {result['context_window']:,} tokens"
+                            + (f"\n[dim](saved to models.json)[/dim]" if result['was_overridden'] else ""),
+                            title="[cyan]Model Switch[/cyan]",
+                            border_style="green",
+                            box=box.ROUNDED,
+                        ))
+                        console.print()
+                    except Exception as e:
+                        console.print(Panel(
+                            f"Failed to switch model: {e}",
+                            title="[red]Error[/red]",
+                            border_style="red",
+                            box=box.ROUNDED,
+                        ))
+                        console.print()
+                continue
+            if line == "/compact":
+                # Force compaction regardless of pressure
+                console.print()
+                with console.status("[cyan]Compacting context...[/cyan]", spinner="dots"):
+                    result = agent.compact_context(force=True)
+                
+                if result["compacted"]:
+                    console.print(Panel(
+                        f"[green]✓ Context compacted successfully[/green]\n\n"
+                        f"[cyan]Summary:[/cyan] {result['summary_length']} words\n"
+                        f"[cyan]Tokens saved:[/cyan] ~{result['tokens_saved']:,}",
+                        title="[cyan]Compaction[/cyan]",
+                        border_style="green",
+                        box=box.ROUNDED,
+                    ))
+                else:
+                    console.print(Panel(
+                        f"[yellow]Compaction skipped[/yellow]\n\n"
+                        f"[dim]Reason: {result['reason']}[/dim]",
+                        title="[cyan]Compaction[/cyan]",
+                        border_style="yellow",
+                        box=box.ROUNDED,
+                    ))
+                console.print()
                 continue
 
             # ── Agent turn ──────────────────────────────────────────────

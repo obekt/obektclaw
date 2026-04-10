@@ -6,6 +6,7 @@ in the same session).
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from queue import Queue, Empty
@@ -13,7 +14,7 @@ from queue import Queue, Empty
 import httpx
 
 from ..agent import Agent
-from ..config import CONFIG
+from ..config import CONFIG, load_config
 from ..memory.store import Store
 from ..skills import SkillManager
 
@@ -64,12 +65,26 @@ def _chunk(s: str, n: int):
 
 
 def run() -> int:
+    # Handle stale empty env vars — reload config from .env files if needed
     if not CONFIG.tg_token:
-        print("OBEKTCLAW_TG_TOKEN not set. Add it to .env and try again.")
+        # Clear stale empty vars and reload
+        for key in ['OBEKTCLAW_TG_TOKEN', 'OBEKTCLAW_LLM_API_KEY', 'OBEKTCLAW_LLM_MODEL', 'OBEKTCLAW_LLM_FAST_MODEL']:
+            if key in os.environ and not os.environ[key]:
+                del os.environ[key]
+        # Reload config by re-reading .env files
+        from ..config import _read_env_file
+        from pathlib import Path
+        home = Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
+        project_env = Path(__file__).resolve().parent.parent / ".env"
+        _read_env_file(project_env)
+        _read_env_file(home / ".env")
+    
+    if not CONFIG.tg_token:
+        print("OBEKTCLAW_TG_TOKEN not set. Add it to ~/.obektclaw/.env and try again.")
         return 1
     key = CONFIG.llm_api_key.strip()
     if not key or key in {"your-api-key-here", "sk-xxx", "sk-your-key", ""}:
-        print("OBEKTCLAW_LLM_API_KEY is not set. Edit .env with a real API key.")
+        print("OBEKTCLAW_LLM_API_KEY is not set. Edit ~/.obektclaw/.env with a real API key.")
         return 1
     store = Store(CONFIG.db_path)
     skills = SkillManager(store, CONFIG.skills_dir, CONFIG.bundled_skills_dir)
