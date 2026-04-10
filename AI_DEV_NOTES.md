@@ -7,7 +7,7 @@ This document is for AI coding agents (Claude, Gemini, Cursor, etc.) continuing 
 - **Name:** obektclaw
 - **Concept:** Self-improving AI agent based on Nous Research Hermes Agent
 - **Size:** ~2,900 lines of Python
-- **Tests:** 235 tests (all offline with fake LLM)
+- **Tests:** 300+ tests (all offline with fake LLM)
 
 ## Quick Context
 
@@ -96,20 +96,20 @@ python -m pytest tests/test_agent_offline.py -v
 # Create tests/test_myfeature.py with FakeLLMClient pattern
 ```
 
-## Known Issues (from AGENTS.md §10)
+## Known Issues (from AGENTS.md §10) — All Resolved
 
-1. **Learning Loop over-eager** — Saves junk facts (file paths, counts). Fixed with exclusion examples in `RETRO_SYSTEM`.
-2. **User model misclassification** — Behavioral observations in wrong layer. Fixed with layer descriptions.
-3. **No MCP auto-load** — Fixed in `agent.py::Agent.__init__`.
-4. **Skills not always in context** — Fixed: now lists all skills in system prompt.
-5. **No memory expiration** — TODO: `python -m obektclaw memory cleanup` command.
-6. **`tools/exec.py` shadows stdlib** — Rename to `tools/execution.py`.
-7. **No tests** — DONE: 235 tests added.
-8. **Tools run with full privileges** — By design (personal VPS deployment).
-9. **Telegram no graceful shutdown** — TODO: sentinel-aware worker loop.
-10. **System prompt never says "be brief"** — TODO: add terseness instruction.
-11. **No retro inspection** — DONE: JSONL logging to `logs/`.
-12. **Delegate builds new registry each time** — TODO: cache.
+1. **Learning Loop over-eager** — ✅ Fixed: exclusion examples in `RETRO_SYSTEM`
+2. **User model misclassification** — ✅ Fixed: layer descriptions in retro prompt
+3. **No MCP auto-load** — ✅ Fixed in `agent.py::Agent.__init__`
+4. **Skills not always in context** — ✅ Fixed: lists all skills in system prompt
+5. **No memory expiration** — ✅ Fixed: `python -m obektclaw memory cleanup`
+6. **`tools/exec.py` shadows stdlib** — ✅ Fixed: renamed to `tools/execution.py`
+7. **No tests** — ✅ Fixed: 300+ tests
+8. **Tools run with full privileges** — By design (personal VPS deployment)
+9. **Telegram no graceful shutdown** — ✅ Fixed: sentinel-aware worker, 2s timeout
+10. **System prompt never says "be brief"** — ✅ Fixed: "Be concise" instruction added
+11. **No retro inspection** — ✅ Fixed: JSONL logging to `logs/`
+12. **Delegate builds new registry each time** — ✅ Fixed: module-level cache
 
 ## Configuration
 

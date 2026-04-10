@@ -93,7 +93,7 @@ class ToolRegistry:
 
 def build_default_registry() -> ToolRegistry:
     """Assemble all built-in tools into a single registry."""
-    from . import fs, exec as execmod, web, memory_tools, skill_tools, delegate
+    from . import fs, execution as execmod, web, memory_tools, skill_tools, delegate
 
     reg = ToolRegistry()
     fs.register(reg)

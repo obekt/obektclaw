@@ -34,13 +34,15 @@ class _ChatWorker(threading.Thread):
             gateway="telegram", user_key=f"tg:{chat_id}",
         )
 
+    _STOP_SENTINEL = "__STOP__"
+
     def run(self) -> None:
         while True:
             try:
-                text = self.queue.get(timeout=300)
+                text = self.queue.get(timeout=2)  # Short timeout for responsive shutdown
             except Empty:
                 continue
-            if text is None:
+            if text == self._STOP_SENTINEL:
                 break
 
             # Status callback — sends typing action to Telegram
@@ -147,10 +149,12 @@ def run() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        # Graceful shutdown: send sentinel to each worker
         for w in workers.values():
-            w.queue.put(None)  # type: ignore[arg-type]
+            w.queue.put(_ChatWorker._STOP_SENTINEL)
+        # Wait for workers to finish (with timeout to avoid hanging)
         for w in workers.values():
-            w.join()
+            w.join(timeout=5)
             w.agent.close()
         store.close()
     return 0

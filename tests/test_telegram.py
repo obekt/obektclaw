@@ -23,7 +23,7 @@ def test_chat_worker():
         mock_agent.run_once.side_effect = ["reply 1", Exception("agent error")]
 
         worker = _ChatWorker(123, mock_store, mock_skills, mock_send, mock_send_chat_action)
-        
+
         # We don't start the thread, just call run manually to test logic
         # But run is an infinite loop, so we need to mock queue.get
         worker.queue = MagicMock()
@@ -31,11 +31,11 @@ def test_chat_worker():
             "msg 1",
             Empty(), # Should continue
             "msg 2",
-            None # Should break
+            _ChatWorker._STOP_SENTINEL # Should break
         ]
-        
+
         worker.run()
-        
+
         assert mock_send.call_count == 2
         mock_send.assert_any_call(123, "reply 1")
         mock_send.assert_any_call(123, "error: agent error")

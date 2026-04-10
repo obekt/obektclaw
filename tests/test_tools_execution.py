@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from pathlib import Path
 
 from obektclaw.tools.registry import ToolContext, ToolRegistry
-from obektclaw.tools.exec import _truncate, bash, exec_python, register, MAX_OUTPUT
+from obektclaw.tools.execution import _truncate, bash, exec_python, register, MAX_OUTPUT
 
 @pytest.fixture
 def mock_ctx(tmp_path: Path):
