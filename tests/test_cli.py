@@ -2,7 +2,7 @@ import sys
 import builtins
 from unittest.mock import MagicMock, patch
 import pytest
-from obektclaw.gateways.cli import run, _first_run_welcome, _show_setup, _check_config
+from obektclaw.gateways.cli import run, _first_run_welcome, show_setup, _check_config
 
 
 def test_check_config_missing_key():
@@ -43,7 +43,7 @@ def test_show_setup(capsys, tmp_path):
 
     # Test 1: MCP config exists, tg_token exists
     mcp_config.touch()
-    _show_setup(mock_config)
+    show_setup(mock_config)
     out, err = capsys.readouterr()
     assert "MCP servers configured" in out
     assert "Telegram bot configured" in out
@@ -51,7 +51,7 @@ def test_show_setup(capsys, tmp_path):
     # Test 2: MCP config missing, tg_token missing
     mcp_config.unlink()
     mock_config.tg_token = ""
-    _show_setup(mock_config)
+    show_setup(mock_config)
     out, err = capsys.readouterr()
     assert "MCP servers: not configured" in out
     assert "Telegram bot: not configured" in out
@@ -153,7 +153,8 @@ def test_run_commands(mock_make_session, mock_agent_cls, mock_skill_mgr, mock_st
     assert "Setup" in out
     assert "reply text" in out
 
-    assert "test error" in err
+    # Errors now go to stdout via Rich panels instead of stderr
+    assert "test error" in out
 
 
 @patch("obektclaw.gateways.cli._check_config", return_value=True)

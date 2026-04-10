@@ -317,11 +317,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then fill in OBEKTCLAW_LLM_API_KEY etc.
 
-# interactive REPL
-python -m obektclaw chat
-
-# Telegram bot (set OBEKTCLAW_TG_TOKEN first)
-python -m obektclaw tg
+# start obektclaw — auto-detects CLI + Telegram gateways
+python -m obektclaw start
 
 # manage skills
 python -m obektclaw skill list
@@ -334,6 +331,8 @@ python -m obektclaw traits
 ```
 
 The CLI gateway also has slash commands: `/skills`, `/memory <q>`, `/traits`, `/exit`.
+
+Legacy `python -m obektclaw chat` and `python -m obektclaw tg` still work as aliases for `start cli` and `start tg` respectively.
 
 To wipe state and start fresh: `rm -rf ~/.obektclaw` (or whatever `OBEKTCLAW_HOME` is).
 

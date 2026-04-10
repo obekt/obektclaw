@@ -15,13 +15,14 @@ def test_chat_worker():
     mock_store = MagicMock()
     mock_skills = MagicMock()
     mock_send = MagicMock()
-    
+    mock_send_chat_action = MagicMock()
+
     with patch("obektclaw.gateways.telegram.Agent") as mock_agent_cls:
         mock_agent = MagicMock()
         mock_agent_cls.return_value = mock_agent
         mock_agent.run_once.side_effect = ["reply 1", Exception("agent error")]
-        
-        worker = _ChatWorker(123, mock_store, mock_skills, mock_send)
+
+        worker = _ChatWorker(123, mock_store, mock_skills, mock_send, mock_send_chat_action)
         
         # We don't start the thread, just call run manually to test logic
         # But run is an infinite loop, so we need to mock queue.get
@@ -112,10 +113,12 @@ def test_run_success(mock_worker_cls, mock_sleep, mock_config, mock_client_cls, 
     # Let's test send separately or let the worker thread run briefly.
     # Actually, we mocked _ChatWorker here, so we capture the send function!
     assert run() == 0
-    
+
     assert mock_worker_cls.call_count == 1
+    # send is at position 3, send_chat_action is at position 4
     send_fn = mock_worker_cls.call_args[0][3]
-    
+    send_chat_action_fn = mock_worker_cls.call_args[0][4]
+
     # Test send function
     send_fn(123, "test_msg")
     mock_client.post.assert_called_once()

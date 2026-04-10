@@ -8,25 +8,25 @@ from .memory.store import Store
 from .skills import SkillManager
 
 
-USAGE = """usage: python -m obektclaw <command> [args]
+USAGE = """usage: python -m obektclaw [command] [args]
 
 commands:
-  chat                       interactive REPL (type /help for examples)
-  tg                         start the Telegram bot
+  start [mode]               start obektclaw (auto-detects gateways)
+                             mode: "auto" (default) | "cli" | "tg"
   setup                      interactive setup wizard
-  
+
   skill list                 list known skills
   skill show <name>          print a skill body
-  
+
   memory recent              dump recent messages
   memory search <query>      search persistent facts
   memory cleanup             remove stale facts
   memory status              check memory system health
-  
+
   traits                     show your user model
   help                       show detailed help
 
-First time? Run: python -m obektclaw chat
+First time? Run: python -m obektclaw start
 """
 
 
@@ -36,19 +36,92 @@ def _open() -> tuple[Store, SkillManager]:
     return store, skills
 
 
+def _start_auto(mode: str | None = None) -> int:
+    """Start obektclaw with auto-detected gateways.
+
+    mode: "auto" (default), "cli", or "tg".
+    """
+    import threading
+    from .config import CONFIG as _cfg
+    from rich.console import Console
+    from rich.panel import Panel
+
+    console = Console()
+    mode = (mode or "auto").lower()
+    want_cli = mode in ("auto", "cli")
+    want_tg = mode in ("auto", "tg") and _cfg.tg_token
+
+    if mode == "auto":
+        # Announce what's starting
+        gateways = []
+        if want_cli:
+            gateways.append("CLI")
+        if want_tg:
+            gateways.append("Telegram")
+        if not gateways:
+            gateways.append("CLI")  # fallback — always start something
+
+        console.print(Panel(
+            f"Starting obektclaw — {', '.join(gateways)} gateway(s)",
+            style="bold cyan",
+            padding=(0, 1),
+        ))
+        console.print()
+
+        if not _cfg.tg_token:
+            console.print("○ [dim]Telegram[/dim] — not configured")
+            console.print("  Set OBEKTCLAW_TG_TOKEN in .env to enable it")
+
+    # Start Telegram in background if requested
+    if want_tg:
+        def _run_telegram():
+            from .gateways.telegram import run as tg_run
+            tg_run()
+
+        tg_thread = threading.Thread(target=_run_telegram, daemon=True, name="telegram-gateway")
+        tg_thread.start()
+        console.print("✓ [green]Telegram gateway[/green] — running")
+
+    # Start CLI in main thread (blocks until user exits)
+    if want_cli:
+        console.print("✓ [green]CLI gateway[/green] — running")
+        console.print()
+        try:
+            from .gateways.cli import run as cli_run
+            return cli_run()
+        except KeyboardInterrupt:
+            return 0
+
+    # Telegram-only mode — block until interrupted
+    if want_tg:
+        try:
+            while True:
+                threading.Event().wait(1)
+        except KeyboardInterrupt:
+            pass
+        return 0
+
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(USAGE)
         return 0
     cmd, *rest = argv
 
+    if cmd == "start":
+        return _start_auto(rest[0] if rest else None)
+
+    # Legacy aliases — route through the single entry point
     if cmd == "chat":
-        from .gateways.cli import run
-        return run()
+        return _start_auto("cli")
 
     if cmd == "tg":
-        from .gateways.telegram import run
-        return run()
+        return _start_auto("tg")
+
+    if cmd == "run":
+        return _start_auto("auto")
 
     if cmd == "setup":
         # Interactive setup wizard

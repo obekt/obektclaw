@@ -22,11 +22,12 @@ API = "https://api.telegram.org/bot{token}/{method}"
 
 
 class _ChatWorker(threading.Thread):
-    def __init__(self, chat_id: int, store: Store, skills: SkillManager, send):
+    def __init__(self, chat_id: int, store: Store, skills: SkillManager, send, send_chat_action):
         super().__init__(daemon=True)
         self.chat_id = chat_id
         self.queue: Queue[str] = Queue()
         self.send = send
+        self.send_chat_action = send_chat_action
         self.agent = Agent(
             config=CONFIG, store=store, skills=skills,
             gateway="telegram", user_key=f"tg:{chat_id}",
@@ -40,8 +41,17 @@ class _ChatWorker(threading.Thread):
                 continue
             if text is None:
                 break
+
+            # Status callback — sends typing action to Telegram
+            def _on_status(msg: str):
+                if msg:
+                    try:
+                        self.send_chat_action(self.chat_id, "typing")
+                    except Exception:
+                        pass
+
             try:
-                reply = self.agent.run_once(text)
+                reply = self.agent.run_once(text, status_fn=_on_status)
             except Exception as e:  # noqa: BLE001
                 reply = f"error: {e}"
             for chunk in _chunk(reply, 3500):
@@ -75,6 +85,16 @@ def run() -> int:
         except httpx.HTTPError as e:
             print(f"[tg] send failed: {e}")
 
+    def send_chat_action(chat_id: int, action: str) -> None:
+        """Send a chat action (e.g. 'typing') to show the typing indicator."""
+        try:
+            client.post(
+                API.format(token=CONFIG.tg_token, method="sendChatAction"),
+                json={"chat_id": chat_id, "action": action},
+            )
+        except httpx.HTTPError:
+            pass  # Silently ignore — typing indicator is non-critical
+
     offset: int | None = None
     print("obektclaw telegram bot running (long-poll)")
     try:
@@ -105,7 +125,7 @@ def run() -> int:
                     continue
                 worker = workers.get(chat_id)
                 if worker is None:
-                    worker = _ChatWorker(chat_id, store, skills, send)
+                    worker = _ChatWorker(chat_id, store, skills, send, send_chat_action)
                     worker.start()
                     workers[chat_id] = worker
                 worker.queue.put(text)

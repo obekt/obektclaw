@@ -24,11 +24,17 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env...
 
-# Start chatting
-python -m obektclaw chat
+# Start obektclaw — automatically detects available gateways
+python -m obektclaw start
 ```
 
-On first run, you'll see a welcome message with examples. Type `/help` for full documentation.
+On first run, you'll see a guided setup wizard. After that, just `python -m obektclaw start` every time.
+
+**Gateway auto-detection:**
+- CLI is always available
+- Telegram starts automatically if `OBEKTCLAW_TG_TOKEN` is set in `.env`
+- Both run simultaneously — chat locally and via Telegram at the same time
+- Force a single gateway: `python -m obektclaw start cli` or `python -m obektclaw start tg`
 
 ## Why obektclaw over OpenClaw / NanoClaw / others?
 
@@ -112,16 +118,27 @@ Tools auto-register as `mcp__filesystem__read_file`, etc.
 | `/setup` | Configuration wizard |
 | `/exit` | Quit |
 
-### CLI
+### Start obektclaw
 
 ```bash
-python -m obektclaw chat          # Interactive REPL
-python -m obektclaw setup         # Setup wizard
-python -m obektclaw tg            # Telegram bot
-python -m obektclaw skill list    # List skills
-python -m obektclaw memory status # Memory health check
-python -m obektclaw --help        # All commands
+python -m obektclaw start          # Auto-detect CLI + Telegram
+python -m obektclaw start cli      # CLI only
+python -m obektclaw start tg       # Telegram only
+python -m obektclaw setup          # Setup wizard
 ```
+
+### Manage
+
+```bash
+python -m obektclaw skill list     # List skills
+python -m obektclaw skill show csv-to-database
+python -m obektclaw memory status  # Memory health check
+python -m obektclaw memory search "httpx"
+python -m obektclaw traits         # Show user model
+python -m obektclaw --help         # All commands
+```
+
+*(Legacy `python -m obektclaw chat` and `python -m obektclaw tg` still work as aliases.)*
 
 ## Documentation
 

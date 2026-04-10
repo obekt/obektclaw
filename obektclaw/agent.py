@@ -97,6 +97,7 @@ class Agent:
         user_key: str = "default",
         run_learning_loop: bool = True,
         load_mcp: bool = True,
+        status_fn: callable | None = None,
     ):
         self.config = config
         self.store = store
@@ -112,6 +113,7 @@ class Agent:
         self.user_key = user_key
         self.run_learning_loop_flag = run_learning_loop
         self._mcp_servers: list | None = None
+        self._status_fn = status_fn
 
         self.session_id = store.open_session(gateway, user_key)
         self.session = SessionMemory(store, self.session_id)
@@ -142,14 +144,37 @@ class Agent:
             self.session.add("system", f"MCP: {len(self._mcp_servers)} server(s) loaded")
 
     # ----- public API -----
-    def run_once(self, user_text: str, *, max_steps: int = 12) -> str:
-        """Run a single user turn to completion and return the assistant's reply."""
+    def _status(self, message: str) -> None:
+        """Fire a status update to the gateway callback, if registered."""
+        if self._status_fn:
+            self._status_fn(message)
+
+    def run_once(
+        self,
+        user_text: str,
+        *,
+        max_steps: int = 12,
+        status_fn: callable | None = None,
+    ) -> str:
+        """Run a single user turn to completion and return the assistant's reply.
+
+        Args:
+            user_text: The user's message.
+            max_steps: Maximum tool-use steps before stopping.
+            status_fn: Optional callback fired with status strings during execution.
+                       Called with "thinking...", "using <tool>", then "" when done.
+        """
         self.session.add("user", user_text)
 
         messages = self._build_messages(user_text)
         tool_steps = 0
         assistant_text = ""
         self.turn_tokens = 0
+
+        # Use the per-call callback, falling back to the instance default
+        _fn = status_fn or self._status_fn
+        if _fn:
+            _fn("thinking...")
 
         for _ in range(max_steps):
             # Truncate mid-turn if context is getting full
@@ -199,6 +224,8 @@ class Agent:
             ctx = self._tool_context()
             for tc in resp.tool_calls:
                 tool_steps += 1
+                if _fn:
+                    _fn(f"using {tc.name}")
                 result = self.registry.call(tc.name, tc.arguments, ctx)
                 self.session.add(
                     "tool",
@@ -227,6 +254,8 @@ class Agent:
                     self.session.add("system", f"learning loop failed: {e}")
             threading.Thread(target=_run_learning_loop, daemon=True).start()
 
+        if _fn:
+            _fn("")  # Clear status — we're done
         return assistant_text or "(no answer)"
 
     def close(self) -> None:

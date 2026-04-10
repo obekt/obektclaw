@@ -2,6 +2,7 @@
 
 Uses prompt_toolkit for interactive slash-command completion, styled
 prompts, history persistence, and a status toolbar.
+Enhanced with Rich for beautiful terminal output.
 """
 from __future__ import annotations
 
@@ -13,12 +14,22 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.styles import Style
+from prompt_toolkit.styles import Style as PromptStyle
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.rule import Rule
+from rich import box
 
 from ..agent import Agent
 from ..config import CONFIG, load_config
 from ..memory.store import Store
 from ..skills import SkillManager
+
+# Initialize Rich console
+console = Console()
 
 
 # ── Slash commands ──────────────────────────────────────────────────────────
@@ -53,7 +64,7 @@ class SlashCompleter(Completer):
 
 # ── Styles ──────────────────────────────────────────────────────────────────
 
-PROMPT_STYLE = Style.from_dict({
+PROMPT_STYLE = PromptStyle.from_dict({
     # Prompt arrow
     "prompt":       "#00d7ff bold",
     # Completion menu
@@ -128,108 +139,148 @@ def _make_session(agent_ref: list) -> PromptSession:
 
 # ── Banners / help ──────────────────────────────────────────────────────────
 
-BANNER = """\
-\033[38;5;75m╭───────────────────────────────────────────╮\033[0m
-\033[38;5;75m│\033[0m         \033[1mobektclaw\033[0m agent                  \033[38;5;75m│\033[0m
-\033[38;5;75m│\033[0m  self-improving AI · memory · skills    \033[38;5;75m│\033[0m
-\033[38;5;75m╰───────────────────────────────────────────╯\033[0m
+def show_banner():
+    """Show a rich styled banner."""
+    title = Text("obektclaw", style="bold cyan")
+    subtitle = Text("self-improving AI agent · memory · skills", style="dim")
+    
+    panel = Panel(
+        Text.assemble(title, "\n", subtitle),
+        box=box.DOUBLE,
+        border_style="cyan",
+        padding=(1, 2),
+    )
+    console.print(panel)
+    console.print()
+    console.print("Type a message and hit enter. ", end="")
+    console.print("Type / for commands.", style="dim italic")
+    console.print()
 
-  Type a message and hit enter.  \033[2mType / for commands.\033[0m
-"""
+def show_help():
+    """Show rich formatted help."""
+    console.print(Panel("obektclaw — self-improving AI agent", style="bold cyan", padding=(0, 1)))
+    console.print()
+    
+    # Feature list
+    features = [
+        ("[cyan]Memory[/cyan]", "session history · persistent facts · user model"),
+        ("[cyan]Tools[/cyan]", "files · bash · python · web · memory · skills · sub-agents"),
+        ("[cyan]Skills[/cyan]", "auto-created markdown guides that improve after each use"),
+    ]
+    for title, desc in features:
+        console.print(f"  {title:12s} {desc}")
+    
+    console.print()
+    console.print(Rule("Commands", style="cyan"))
+    
+    commands = [
+        ("/help", "this help"),
+        ("/skills", "list skills"),
+        ("/memory <q>", "search memory"),
+        ("/traits", "show user model"),
+        ("/setup", "configure integrations"),
+        ("/exit", "quit"),
+    ]
+    
+    table = Table.grid(padding=(0, 2))
+    table.add_column("Command", style="bold cyan")
+    table.add_column("Description", style="dim")
+    
+    for cmd, desc in commands:
+        table.add_row(cmd, desc)
+    
+    console.print(table)
+    console.print()
+    console.print("Tip: type / to see interactive command picker.", style="italic dim")
+    console.print()
 
-HELP_TEXT = """\
-\033[1mobektclaw\033[0m — self-improving AI agent
-
-\033[38;5;75m  Memory\033[0m      session history · persistent facts · user model
-\033[38;5;75m  Tools\033[0m       files · bash · python · web · memory · skills · sub-agents
-\033[38;5;75m  Skills\033[0m      auto-created markdown guides that improve after each use
-
-\033[1mCommands\033[0m
-  /help          this help
-  /skills        list skills
-  /memory <q>    search memory
-  /traits        show user model
-  /setup         configure integrations
-  /exit          quit
-
-\033[2mTip: type / to see interactive command picker.\033[0m
-"""
-
-SETUP_TEXT = """
-╔═══════════════════════════════════════════════════════════╗
-║                    obektclaw Setup                        ║
-╚═══════════════════════════════════════════════════════════╝
-
-Current configuration:
-  OBEKTCLAW_HOME: {obektclaw_home}
-  Database: {db_path}
-  Skills: {skills_dir}
-  Logs: {logs_dir}
-
-"""
+def show_setup(config=None):
+    """Show current configuration and guided options."""
+    cfg = config or CONFIG
+    
+    console.print(Panel("obektclaw Setup", style="bold cyan", padding=(0, 1)))
+    console.print()
+    
+    # Current configuration
+    console.print("[bold]Current configuration:[/bold]")
+    config_items = [
+        ("OBEKTCLAW_HOME", str(cfg.home)),
+        ("Database", str(cfg.db_path)),
+        ("Skills", str(cfg.skills_dir)),
+        ("Logs", str(cfg.logs_dir)),
+    ]
+    
+    table = Table.grid(padding=(0, 2))
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="dim")
+    
+    for setting, value in config_items:
+        table.add_row(setting, value)
+    
+    console.print(table)
+    console.print()
+    
+    # LLM config
+    console.print(f"  [cyan]LLM:[/cyan] {cfg.llm_model} via {cfg.llm_base_url}")
+    console.print(f"  [cyan]Config:[/cyan] {_env_file()}")
+    console.print()
+    
+    # Check if MCP config exists
+    mcp_config = cfg.home / "mcp.json"
+    if mcp_config.exists():
+        console.print("✓ [green]MCP servers configured[/green]")
+    else:
+        console.print("○ [dim]MCP servers: not configured[/dim]")
+        console.print(f"  Create [cyan]{mcp_config}[/cyan] to connect external tools")
+    
+    # Check Telegram
+    if cfg.tg_token:
+        console.print("✓ [green]Telegram bot configured[/green]")
+        console.print("  Run: [cyan]python -m obektclaw tg[/cyan]")
+    else:
+        console.print("○ [dim]Telegram bot: not configured[/dim]")
+        console.print("  To enable Telegram chat:")
+        console.print("  1. Message @BotFather on Telegram")
+        console.print("  2. Create a new bot with /newbot")
+        console.print("  3. Copy the token")
+        console.print(f"  4. Add to [cyan]{_env_file()}[/cyan]: OBEKTCLAW_TG_TOKEN=your_token")
+    
+    console.print()
 
 
 def _first_run_welcome():
     """Show a welcome message on first run."""
-    print(f"""\
-\033[38;5;75m╭───────────────────────────────────────────╮\033[0m
-\033[38;5;75m│\033[0m    \033[1mWelcome to obektclaw\033[0m                  \033[38;5;75m│\033[0m
-\033[38;5;75m╰───────────────────────────────────────────╯\033[0m
-
-  I'm a self-improving AI agent with memory & skills.
-
-  \033[38;5;75m1.\033[0m \033[1mRemember\033[0m   "I always use httpx over requests"
-  \033[38;5;75m2.\033[0m \033[1mExecute\033[0m    "List all Python files here"
-  \033[38;5;75m3.\033[0m \033[1mLearn\033[0m      I create skills from patterns I discover
-  \033[38;5;75m4.\033[0m \033[1mConnect\033[0m    /setup to add Telegram or MCP servers
-
-  \033[2mType / for commands · /help for docs · /exit to quit\033[0m
-""")
-
-
-def _show_setup(config=None):
-    """Show current configuration and guided options."""
-    cfg = config or CONFIG
-    print(SETUP_TEXT.format(
-        obektclaw_home=cfg.home,
-        db_path=cfg.db_path,
-        skills_dir=cfg.skills_dir,
-        logs_dir=cfg.logs_dir,
-    ))
-
-    # LLM
-    print(f"  LLM: {cfg.llm_model} via {cfg.llm_base_url}")
-    print(f"  Config: {_env_file()}")
-    print()
-
-    # Check if MCP config exists
-    mcp_config = cfg.home / "mcp.json"
-    if mcp_config.exists():
-        print("✓ MCP servers configured")
-    else:
-        print("○ MCP servers: not configured")
-        print("  Create {} to connect external tools".format(mcp_config))
-
-    # Check Telegram
-    if cfg.tg_token:
-        print("✓ Telegram bot configured")
-        print("  Run: python -m obektclaw tg")
-    else:
-        print("○ Telegram bot: not configured")
-        print("  To enable Telegram chat:")
-        print("  1. Message @BotFather on Telegram")
-        print("  2. Create a new bot with /newbot")
-        print("  3. Copy the token")
-        print(f"  4. Add to {_env_file()}: OBEKTCLAW_TG_TOKEN=your_token")
-
-    print()
-
-
-_PLACEHOLDER_KEYS = {"your-api-key-here", "sk-xxx", "sk-your-key", ""}
+    title = Text("Welcome to obektclaw", style="bold cyan")
+    panel = Panel(
+        title,
+        box=box.DOUBLE,
+        border_style="cyan",
+        padding=(0, 2),
+    )
+    console.print(panel)
+    console.print()
+    console.print("I'm a self-improving AI agent with memory & skills.")
+    console.print()
+    
+    steps = [
+        ("1.", "Remember", '"I always use httpx over requests"'),
+        ("2.", "Execute", '"List all Python files here"'),
+        ("3.", "Learn", "I create skills from patterns I discover"),
+        ("4.", "Connect", "/setup to add Telegram or MCP servers"),
+    ]
+    
+    for num, action, example in steps:
+        console.print(f"  [cyan]{num}[/cyan] [bold]{action}[/bold]  {example}")
+    
+    console.print()
+    console.print("Type / for commands · /help for docs · /exit to quit", style="dim italic")
+    console.print()
 
 def _env_file() -> Path:
     """The .env lives alongside data in OBEKTCLAW_HOME (~/.obektclaw/.env)."""
     return CONFIG.home / ".env"
+
+_PLACEHOLDER_KEYS = {"your-api-key-here", "sk-xxx", "sk-your-key", ""}
 
 _PROVIDERS = [
     ("OpenRouter", "https://openrouter.ai/api/v1", "anthropic/claude-haiku-4.5"),
@@ -298,19 +349,17 @@ def _write_env(base_url: str, api_key: str, model: str) -> None:
 
 def _setup_wizard() -> "Config | None":
     """Interactive setup. Returns a new Config on success, None on abort."""
-    print("""
-╔═══════════════════════════════════════════════════════════╗
-║              obektclaw — First Time Setup                  ║
-╚═══════════════════════════════════════════════════════════╝
-
-Let's connect to an LLM provider. Pick one:
-""")
+    console.print(Panel("obektclaw — First Time Setup", style="bold cyan", padding=(0, 1)))
+    console.print()
+    console.print("Let's connect to an LLM provider. Pick one:")
+    console.print()
+    
     for i, (name, url, _model) in enumerate(_PROVIDERS, 1):
         if url:
-            print(f"  {i}. {name}  ({url})")
+            console.print(f"  [cyan]{i}.[/cyan] {name}  [dim]({url})[/dim]")
         else:
-            print(f"  {i}. {name}")
-    print()
+            console.print(f"  [cyan]{i}.[/cyan] {name}")
+    console.print()
 
     choice = _prompt("Provider [1-4]", "1")
     if not choice:
@@ -334,38 +383,38 @@ Let's connect to an LLM provider. Pick one:
     else:
         base_url = default_url
 
-    print()
+    console.print()
     api_key = _prompt("API key")
     if not api_key:
-        print("\n  No key provided. Aborting setup.")
+        console.print("\n[cyan]No key provided. Aborting setup.[/cyan]")
         return None
 
-    print()
+    console.print()
     model = _prompt("Model", default_model)
     if not model:
         model = default_model
 
     # Test the connection
-    print(f"\n  Testing connection to {_name}...", end=" ", flush=True)
+    console.print(f"\nTesting connection to {_name}...", end="")
     err = _test_llm(base_url, api_key, model)
     if err:
-        print("FAILED")
+        console.print(" [red]FAILED[/red]")
         # Show a concise error
         if "401" in err or "auth" in err.lower():
-            print(f"  Invalid API key.")
+            console.print("  [red]Invalid API key.[/red]")
         elif "connection" in err.lower() or "refused" in err.lower():
-            print(f"  Can't reach {base_url}")
+            console.print(f"  [red]Can't reach {base_url}[/red]")
         elif "model" in err.lower() and ("not found" in err.lower() or "404" in err):
-            print(f"  Model '{model}' not found at this provider.")
+            console.print(f"  [red]Model '{model}' not found at this provider.[/red]")
         else:
-            print(f"  {err[:200]}")
-        print()
+            console.print(f"  [red]{err[:200]}[/red]")
+        console.print()
         retry = _prompt("Save anyway? (y/n)", "n")
         if retry.lower() != "y":
             return None
 
     else:
-        print("OK!")
+        console.print(" [green]OK![/green]")
 
     # Write to .env and force into os.environ
     _write_env(base_url, api_key, model)
@@ -374,10 +423,10 @@ Let's connect to an LLM provider. Pick one:
     os.environ["OBEKTCLAW_LLM_MODEL"] = model
     os.environ["OBEKTCLAW_LLM_FAST_MODEL"] = model
 
-    print(f"\n  Saved to {_env_file()}")
-    print(f"  Provider: {_name}")
-    print(f"  Model:    {model}")
-    print()
+    console.print(f"\n[cyan]Saved to[/cyan] {_env_file()}")
+    console.print(f"  [cyan]Provider:[/cyan] {_name}")
+    console.print(f"  [cyan]Model:[/cyan]    {model}")
+    console.print()
 
     return load_config()
 
@@ -409,7 +458,7 @@ def run() -> int:
     if is_first_run:
         _first_run_welcome()
     else:
-        print(BANNER)
+        show_banner()
 
     session = _make_session(agent_ref)
 
@@ -426,74 +475,154 @@ def run() -> int:
             if line in ("/exit", "/quit"):
                 break
             if line == "/help":
-                print(HELP_TEXT)
+                show_help()
                 continue
             if line == "/skills":
                 all_skills = skills.list_all()
                 if not all_skills:
-                    print("  \033[2mNo skills yet. They auto-create when I learn patterns.\033[0m")
+                    console.print("  [dim]No skills yet. They auto-create when I learn patterns.[/dim]")
                 else:
-                    print(f"\n  \033[1mSkills\033[0m ({len(all_skills)})\n")
+                    console.print()
+                    table = Table(
+                        title=f"Skills ({len(all_skills)})",
+                        box=box.ROUNDED,
+                        border_style="cyan",
+                    )
+                    table.add_column("Name", style="bold cyan")
+                    table.add_column("Description", style="dim")
+                    table.add_column("Uses", justify="right", style="green")
+                    
                     for sk in all_skills:
-                        print(f"  \033[38;5;75m●\033[0m {sk.name}  \033[2m{sk.description}\033[0m")
-                    print()
+                        table.add_row(
+                            sk.name,
+                            sk.description or "",
+                            str(sk.use_count),
+                        )
+                    console.print(table)
+                    console.print()
                 continue
             if line.startswith("/memory"):
                 q = line[len("/memory"):].strip()
                 if not q:
-                    print("  \033[2musage: /memory <query>\033[0m")
+                    console.print("  [dim]usage: /memory <query>[/dim]")
                     continue
                 results = list(agent.persistent.search(q))
                 if not results:
-                    print(f"  \033[2mNo memories found for '{q}'\033[0m")
+                    console.print(f"  [dim]No memories found for '{q}'[/dim]")
                 else:
-                    print(f"\n  \033[1mMemories\033[0m ({len(results)})\n")
+                    console.print()
+                    console.print(f"[bold cyan]Memories[/bold cyan] ({len(results)})")
+                    console.print(Rule(style="cyan"))
                     for f in results:
-                        print(f"  \033[38;5;75m●\033[0m {f.render()}")
-                    print()
+                        console.print(f"  [cyan]●[/cyan] {f.render()}")
+                    console.print()
                 continue
             if line == "/traits":
                 traits = agent.user_model.all()
                 if not traits:
-                    print("  \033[2mNo user model yet. It builds as we talk.\033[0m")
+                    console.print("  [dim]No user model yet. It builds as we talk.[/dim]")
                 else:
-                    print(f"\n  \033[1mUser model\033[0m ({len(traits)} traits)\n")
+                    console.print()
+                    console.print(f"[bold cyan]User model[/bold cyan] ({len(traits)} traits)")
+                    console.print(Rule(style="cyan"))
+                    
+                    table = Table(box=box.SIMPLE, padding=(0, 2))
+                    table.add_column("Layer", style="bold cyan")
+                    table.add_column("Value", style="white")
+                    
                     for t in traits:
-                        print(f"  \033[38;5;75m●\033[0m \033[1m{t.layer}\033[0m  {t.value}")
-                    print()
+                        table.add_row(t.layer, t.value)
+                    console.print(table)
+                    console.print()
                 continue
             if line == "/setup":
-                _show_setup(config)
+                show_setup(config)
                 continue
 
             # ── Agent turn ──────────────────────────────────────────────
+            # Use the agent's status callback to show a dynamic spinner
+            status_obj = None
+            def _on_status(msg: str):
+                nonlocal status_obj
+                if msg:
+                    if status_obj is None:
+                        status_obj = console.status(f"[cyan]{msg}[/cyan]", spinner="dots")
+                        status_obj.start()
+                    else:
+                        status_obj.update(f"[cyan]{msg}[/cyan]")
+                elif status_obj is not None:
+                    status_obj.stop()
+                    status_obj = None
+
             try:
-                reply = agent.run_once(line)
+                reply = agent.run_once(line, status_fn=_on_status)
             except Exception as e:  # noqa: BLE001
+                if status_obj:
+                    status_obj.stop()
+                    status_obj = None
                 err = str(e)
                 if "401" in err or "auth" in err.lower() or "api key" in err.lower():
-                    print(f"\033[31m  error:\033[0m Invalid API key. Check OBEKTCLAW_LLM_API_KEY in {_env_file()}", file=sys.stderr)
+                    console.print(Panel(
+                        f"Invalid API key. Check OBEKTCLAW_LLM_API_KEY in {_env_file()}",
+                        title="[red]Error[/red]",
+                        border_style="red",
+                        box=box.ROUNDED,
+                    ))
                 elif "connection" in err.lower() or "refused" in err.lower():
-                    print(f"\033[31m  error:\033[0m Can't reach LLM at {config.llm_base_url}", file=sys.stderr)
+                    console.print(Panel(
+                        f"Can't reach LLM at {config.llm_base_url}",
+                        title="[red]Error[/red]",
+                        border_style="red",
+                        box=box.ROUNDED,
+                    ))
                 elif "429" in err or "rate" in err.lower():
-                    print("\033[31m  error:\033[0m Rate limited. Wait a moment and try again.", file=sys.stderr)
+                    console.print(Panel(
+                        "Rate limited. Wait a moment and try again.",
+                        title="[red]Error[/red]",
+                        border_style="red",
+                        box=box.ROUNDED,
+                    ))
                 elif "model" in err.lower() and ("not found" in err.lower() or "404" in err):
-                    print(f"\033[31m  error:\033[0m Model '{config.llm_model}' not found.", file=sys.stderr)
+                    console.print(Panel(
+                        f"Model '{config.llm_model}' not found.",
+                        title="[red]Error[/red]",
+                        border_style="red",
+                        box=box.ROUNDED,
+                    ))
                 else:
-                    print(f"\033[31m  error:\033[0m {e}", file=sys.stderr)
+                    console.print(Panel(
+                        str(e),
+                        title="[red]Error[/red]",
+                        border_style="red",
+                        box=box.ROUNDED,
+                    ))
                 continue
-            print(f"\n\033[38;5;75m  obektclaw\033[0m  {reply}\n")
+            
+            # Display agent response with rich markdown rendering
+            console.print()
+            response_panel = Panel(
+                Markdown(reply),
+                title="[cyan]obektclaw[/cyan]",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+            console.print(response_panel)
+            console.print()
+            
             # Warn when context is getting tight
             try:
                 pressure = agent._context_pressure()
             except (AttributeError, TypeError):
                 pressure = 0.0
             if isinstance(pressure, (int, float)) and pressure > 0.8:
-                print(
-                    "\033[33m  warning:\033[0m context window is "
-                    f"{int(pressure * 100)}% full — "
-                    "consider starting a new session.\033[0m\n"
-                )
+                console.print(Panel(
+                    f"Context window is {int(pressure * 100)}% full — consider starting a new session.",
+                    title="[yellow]Warning[/yellow]",
+                    border_style="yellow",
+                    box=box.ROUNDED,
+                ))
+                console.print()
     finally:
         agent.close()
         store.close()

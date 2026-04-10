@@ -7,7 +7,7 @@
 ```bash
 cd obektclaw
 source .venv/bin/activate
-python -m obektclaw chat
+python -m obektclaw start
 ```
 
 ### 2. What You'll See
@@ -23,10 +23,10 @@ I'm a self-improving AI agent. Here's what I can do:
 
 1. REMEMBER: Tell me your preferences and I'll remember them
    → "I always use httpx instead of requests"
-   
+
 2. EXECUTE: I can run commands and manipulate files
    → "List all Python files in this directory"
-   
+
 3. LEARN: I create skills from successful patterns
    → After helping you deploy, I'll save it as a skill
 
@@ -47,16 +47,32 @@ you> /setup
 you> /exit
 ```
 
+## Gateway Auto-Detection
+
+obektclaw automatically detects which gateways are available:
+
+- **CLI** — Always available
+- **Telegram** — Starts automatically if `OBEKTCLAW_TG_TOKEN` is set
+- **Both** — Run simultaneously so you can chat from either place
+
+```bash
+python -m obektclaw start          # Auto-detect (recommended)
+python -m obektclaw start cli      # CLI only
+python -m obektclaw start tg       # Telegram only
+```
+
+*(Legacy `python -m obektclaw chat` and `python -m obektclaw tg` still work.)*
+
 ## Commands Reference
 
-### In Chat (`python -m obektclaw chat`)
+### In Chat
 
 | Command | Description |
 |---------|-------------|
 | `/help` | Show detailed help with examples |
 | `/skills` | List all available skills |
 | `/memory <query>` | Search your persistent memories |
-| `/traits` | Show what Obektclaw learned about you |
+| `/traits` | Show what obektclaw learned about you |
 | `/setup` | Configuration wizard |
 | `/exit` | Exit the chat |
 
@@ -64,9 +80,8 @@ you> /exit
 
 | Command | Description |
 |---------|-------------|
-| `python -m obektclaw chat` | Start interactive chat |
+| `python -m obektclaw start` | Start obektclaw (auto-detects gateways) |
 | `python -m obektclaw setup` | Run setup wizard |
-| `python -m obektclaw tg` | Start Telegram bot |
 | `python -m obektclaw skill list` | List skills |
 | `python -m obektclaw memory search <q>` | Search memory |
 | `python -m obektclaw traits` | Show user model |
@@ -86,17 +101,16 @@ Want to chat with obektclaw on Telegram?
    ```bash
    # Edit .env in the project root
    OBEKTCLAW_TG_TOKEN=your_token_here
-   
-   # Or run setup wizard
-   python -m obektclaw setup
    ```
 
-3. **Start the bot:**
+3. **Start obektclaw — Telegram starts automatically:**
    ```bash
-   python -m obektclaw tg
+   python -m obektclaw start
    ```
 
 4. **Message your bot on Telegram!**
+
+To run Telegram-only mode: `python -m obektclaw start tg`
 
 ## Optional: MCP Servers
 
