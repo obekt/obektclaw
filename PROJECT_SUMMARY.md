@@ -2,14 +2,15 @@
 
 ## What We Built
 
-**obektclaw** is a self-improving AI agent that weaves its own harness. It's a minimal (~2,900 lines), complete implementation of the Nous Research Hermes Agent concept with:
+**obektclaw** is a self-improving AI agent that weaves its own harness. It's a minimal (~4,700 lines), complete implementation of the Nous Research Hermes Agent concept with:
 
 - 🧠 Three-layer memory (session + persistent + 12-layer user model)
 - 📚 Self-improving skills (markdown files that auto-create and improve)
 - 🛠️ 16 built-in tools + MCP bridge
 - 🔄 Learning Loop (retrospects after every turn)
 - 💬 CLI + Telegram gateways
-- ✅ 235 tests (all offline)
+- 📋 Session management (list, show, export, resume)
+- ✅ 326 tests (all offline)
 
 ## Files Created/Updated
 
@@ -47,10 +48,11 @@
 
 ```
 obektclaw/
-├── obektclaw/           # Core package (renamed from obektclaw/)
+├── obektclaw/           # Core package
 │   ├── __init__.py      # v0.1.0
 │   ├── __main__.py      # CLI dispatcher
-│   ├── agent.py         # ReAct loop
+│   ├── agent.py         # ReAct loop + session resume
+│   ├── sessions.py      # Session management, export, resume
 │   ├── learning.py      # Learning Loop
 │   ├── llm.py           # OpenAI-compatible client
 │   ├── config.py        # Configuration
@@ -59,7 +61,7 @@ obektclaw/
 │   ├── skills/          # Markdown skills
 │   ├── tools/           # 16 built-in tools
 │   └── gateways/        # CLI + Telegram
-├── tests/               # 235 tests
+├── tests/               # 326 tests
 ├── bundled_skills/      # 3 starter skills
 ├── docs/                # Architecture + novelty
 ├── .gitignore           # Secrets excluded
@@ -72,7 +74,7 @@ obektclaw/
 ## Test Results
 
 ```
-235 passed in 0.62s
+326 passed in 0.65s
 ```
 
 All tests pass. No live LLM calls (fake LLM clients).

@@ -1,6 +1,7 @@
 """Top-level CLI dispatcher: `python -m obektclaw <subcommand>`."""
 from __future__ import annotations
 
+import json
 import sys
 
 from .config import CONFIG
@@ -14,6 +15,11 @@ commands:
   start [mode]               start obektclaw (auto-detects gateways)
                              mode: "auto" (default) | "cli" | "tg"
   setup                      interactive setup wizard
+
+  sessions list              list recent sessions
+  sessions show <id>         show session details
+  sessions export <id>       export session (--format md|json, --output file)
+  sessions resume <id>       resume a past session in CLI
 
   skill list                 list known skills
   skill show <name>          print a skill body
@@ -92,16 +98,22 @@ def _start_auto(mode: str | None = None) -> int:
         except KeyboardInterrupt:
             return 0
 
-    # Telegram-only mode — block until interrupted
+    # Telegram-only mode — block until interrupted or thread dies
     if want_tg:
         try:
-            while True:
-                threading.Event().wait(1)
+            while tg_thread.is_alive():
+                tg_thread.join(timeout=1)
         except KeyboardInterrupt:
             pass
         return 0
 
     return 0
+
+
+def _resume_session(session_id: int, info: "SessionSummary") -> int:
+    """Resume an old session in CLI mode."""
+    from .gateways.cli import run_with_session
+    return run_with_session(session_id, info)
 
 
 def main(argv: list[str]) -> int:
@@ -159,6 +171,126 @@ Configuration:
             print("  6. Run: python -m obektclaw tg")
         print()
         return 0
+
+    if cmd == "sessions":
+        from .sessions import (
+            list_sessions, get_session_info, get_session_messages,
+            export_session_markdown, export_session_json,
+        )
+        store, skills = _open()
+        try:
+            if not rest:
+                print("usage: sessions list | sessions show <id> | sessions export <id> | sessions resume <id>")
+                return 1
+            sub = rest[0]
+
+            if sub == "list":
+                sessions = list_sessions(store, limit=20)
+                if not sessions:
+                    print("(no sessions)")
+                    return 0
+                print(f"{'ID':>5}  {'Started':<17}  {'Dur':>5}  {'GW':<9}  {'Msgs':>4}  Preview")
+                print("-" * 80)
+                for s in sessions:
+                    print(
+                        f"{s.id:>5}  {s.started_str:<17}  {s.duration_str:>5}  "
+                        f"{s.gateway:<9}  {s.message_count:>4}  {s.preview}"
+                    )
+                return 0
+
+            if sub == "show":
+                if len(rest) < 2:
+                    print("usage: sessions show <id>")
+                    return 1
+                try:
+                    sid = int(rest[1])
+                except ValueError:
+                    print(f"invalid session id: {rest[1]}")
+                    return 1
+                info = get_session_info(store, sid)
+                if info is None:
+                    print(f"no such session: {sid}")
+                    return 1
+                print(f"Session #{info.id}")
+                print(f"  Started:  {info.started_str}")
+                if info.ended_str:
+                    print(f"  Ended:    {info.ended_str}")
+                print(f"  Duration: {info.duration_str}")
+                print(f"  Gateway:  {info.gateway}")
+                print(f"  User:     {info.user_key}")
+                print(f"  Messages: {info.message_count}")
+                print()
+                messages = get_session_messages(store, sid)
+                for msg in messages:
+                    role = msg.tool_name or msg.role
+                    content = msg.content[:200]
+                    if len(msg.content) > 200:
+                        content += "..."
+                    print(f"  [{msg.ts_str}] {role}: {content}")
+                return 0
+
+            if sub == "export":
+                if len(rest) < 2:
+                    print("usage: sessions export <id> [--format md|json] [--output file]")
+                    return 1
+                try:
+                    sid = int(rest[1])
+                except ValueError:
+                    print(f"invalid session id: {rest[1]}")
+                    return 1
+                # Parse optional flags
+                fmt = "md"
+                output_path = None
+                i = 2
+                while i < len(rest):
+                    if rest[i] == "--format" and i + 1 < len(rest):
+                        fmt = rest[i + 1]
+                        i += 2
+                    elif rest[i] == "--output" and i + 1 < len(rest):
+                        output_path = rest[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                if fmt not in ("md", "json"):
+                    print(f"unknown format: {fmt}  (use md or json)")
+                    return 1
+                if fmt == "md":
+                    result = export_session_markdown(store, sid)
+                else:
+                    data = export_session_json(store, sid)
+                    result = json.dumps(data, indent=2, ensure_ascii=False) if data else None
+                if result is None:
+                    print(f"no such session: {sid}")
+                    return 1
+                if output_path:
+                    from pathlib import Path
+                    Path(output_path).write_text(result)
+                    print(f"exported session {sid} to {output_path}")
+                else:
+                    print(result)
+                return 0
+
+            if sub == "resume":
+                if len(rest) < 2:
+                    print("usage: sessions resume <id>")
+                    return 1
+                try:
+                    sid = int(rest[1])
+                except ValueError:
+                    print(f"invalid session id: {rest[1]}")
+                    return 1
+                info = get_session_info(store, sid)
+                if info is None:
+                    print(f"no such session: {sid}")
+                    return 1
+                # Close this store — the CLI gateway will open its own
+                store.close()
+                return _resume_session(sid, info)
+
+            print(f"unknown sessions subcommand: {sub}")
+            return 1
+        finally:
+            store.close()
 
     if cmd == "skill":
         store, skills = _open()

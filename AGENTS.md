@@ -2,7 +2,7 @@
 
 If you are an AI coding agent (Claude, Codex, Cursor, an OpenCode session, anything) picking up work on this repo, **read this file end to end before touching code**. It is the single source of truth for what obektclaw is, what's already built, what was tested live, what is known broken, and where to push next.
 
-The repo is a from-scratch reproduction of the **Hermes Agent** concept described in the Nous Research orange book ("Hermes Agent: The Complete Guide" v260408). The book describes a self-improving personal AI agent with five components — Learning Loop, three-layer memory, self-evolving skill system, 40+ tools + MCP, and a multi-platform gateway. This repo implements all five at an MVP-but-coherent level (~2,900 lines of Python). It is not a production clone; it is a working reference you can run, extend, and test.
+The repo is a from-scratch reproduction of the **Hermes Agent** concept described in the Nous Research orange book ("Hermes Agent: The Complete Guide" v260408). The book describes a self-improving personal AI agent with five components — Learning Loop, three-layer memory, self-evolving skill system, 40+ tools + MCP, and a multi-platform gateway. This repo implements all five at an MVP-but-coherent level (~4,700 lines of Python). It is not a production clone; it is a working reference you can run, extend, and test.
 
 ---
 
@@ -45,7 +45,8 @@ obektclaw/
     ├── config.py              ← .env loader + Config dataclass + global CONFIG
     ├── llm.py                 ← OpenAI-compatible LLMClient with chat() / chat_json()
     ├── agent.py               ← The ReAct loop. Single-threaded, per-session.
-    │                           Now includes context compaction at 85% pressure.
+    │                           Context compaction at 85% pressure. Session resume support.
+    ├── sessions.py            ← Session management: list, show, export (md/json), resume
     ├── learning.py            ← The Learning Loop (post-turn retrospection)
     ├── mcp.py                 ← Minimal stdio JSON-RPC MCP client
     ├── model_context.py       ← Context window detection + runtime model switching
@@ -77,7 +78,7 @@ obektclaw/
         └── telegram.py        ← Long-poll bot, one Agent per chat_id
 ```
 
-Total: **16 built-in tools**, **12 user-model layers**, **3 bundled skills**, **~4,000 lines of Python** (including tests).
+Total: **16 built-in tools**, **12 user-model layers**, **3 bundled skills**, **~4,700 lines of Python** (plus ~5,800 lines of tests).
 
 ---
 
@@ -322,6 +323,12 @@ cp .env.example .env   # then fill in OBEKTCLAW_LLM_API_KEY etc.
 # start obektclaw — auto-detects CLI + Telegram gateways
 python -m obektclaw start
 
+# manage sessions
+python -m obektclaw sessions list
+python -m obektclaw sessions show 42
+python -m obektclaw sessions export 42 --format json --output session.json
+python -m obektclaw sessions resume 42
+
 # manage skills
 python -m obektclaw skill list
 python -m obektclaw skill show csv-to-database
@@ -332,7 +339,7 @@ python -m obektclaw memory search "deployment"
 python -m obektclaw traits
 ```
 
-The CLI gateway also has slash commands: `/skills`, `/memory <q>`, `/traits`, `/exit`.
+The CLI gateway also has slash commands: `/skills`, `/memory <q>`, `/traits`, `/sessions`, `/exit`.
 
 Legacy `python -m obektclaw chat` and `python -m obektclaw tg` still work as aliases for `start cli` and `start tg` respectively.
 
@@ -439,4 +446,4 @@ If I were the next agent picking this up, I would do these in order:
 
 ## 18. One-paragraph summary you can paste to a fresh agent
 
-> obektclaw is a ~2,900-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), three-layer SQLite+FTS5 memory (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), and a Learning Loop that runs structured retrospection after every turn (`obektclaw/learning.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 235 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, and tools. Rough edges (over-eager Learning Loop, no memory auto-expiry, unsandboxed tool execution) are enumerated in §10. Read `AGENTS.md` before changing anything.
+> obektclaw is a ~4,700-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), three-layer SQLite+FTS5 memory (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), a Learning Loop that runs structured retrospection after every turn (`obektclaw/learning.py`), and session management with export and resume (`obektclaw/sessions.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 326 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, tools, sessions, and gateways. Read `AGENTS.md` before changing anything.

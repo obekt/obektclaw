@@ -6,8 +6,8 @@ This document is for AI coding agents (Claude, Gemini, Cursor, etc.) continuing 
 
 - **Name:** obektclaw
 - **Concept:** Self-improving AI agent based on Nous Research Hermes Agent
-- **Size:** ~2,900 lines of Python
-- **Tests:** 300+ tests (all offline with fake LLM)
+- **Size:** ~4,700 lines of Python
+- **Tests:** 326 tests across 27 files (all offline with fake LLM)
 
 ## Quick Context
 
@@ -27,7 +27,8 @@ Synchronous ReAct loop (`obektclaw/agent.py`) builds system prompt from user mod
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `obektclaw/agent.py` | ReAct loop, prompt assembly | ~250 |
+| `obektclaw/agent.py` | ReAct loop, prompt assembly, session resume | ~580 |
+| `obektclaw/sessions.py` | Session management, export, resume | ~260 |
 | `obektclaw/learning.py` | Learning Loop, retro prompt | ~185 |
 | `obektclaw/memory/store.py` | SQLite + FTS5 wrapper | ~320 |
 | `obektclaw/memory/session.py` | Layer 1: conversation history | ~50 |
@@ -37,9 +38,9 @@ Synchronous ReAct loop (`obektclaw/agent.py`) builds system prompt from user mod
 | `obektclaw/tools/registry.py` | Tool registration, execution | ~100 |
 | `obektclaw/tools/*.py` | Built-in tools (fs, exec, web, etc.) | ~500 |
 | `obektclaw/mcp.py` | MCP stdio client | ~180 |
-| `obektclaw/gateways/cli.py` | CLI REPL | ~220 |
+| `obektclaw/gateways/cli.py` | CLI REPL, /sessions, session resume | ~820 |
 | `obektclaw/gateways/telegram.py` | Telegram bot | ~150 |
-| `tests/test_*.py` | Test suite | ~1,200 |
+| `tests/test_*.py` | Test suite (326 tests, 27 files) | ~5,800 |
 
 ## Design Principles
 

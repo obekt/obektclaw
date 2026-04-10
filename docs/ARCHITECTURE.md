@@ -2,7 +2,7 @@
 
 ## Overview
 
-obektclaw is a minimal, self-improving AI agent implementation based on the [Nous Research Hermes Agent](https://github.com/NousResearch/Hermes) concept. It implements a complete agent harness with memory, skills, tools, and a learning loop in ~2,900 lines of Python.
+obektclaw is a minimal, self-improving AI agent implementation based on the [Nous Research Hermes Agent](https://github.com/NousResearch/Hermes) concept. It implements a complete agent harness with memory, skills, tools, and a learning loop in ~4,700 lines of Python.
 
 ## Core Thesis
 
@@ -233,7 +233,8 @@ def tool_fn(args: dict, ctx: ToolContext) -> ToolResult:
 #### CLI (`cli.py`)
 - REPL with slash commands
 - First-run welcome message
-- Commands: `/help`, `/skills`, `/memory`, `/traits`, `/setup`, `/exit`
+- Commands: `/help`, `/skills`, `/memory`, `/traits`, `/sessions`, `/setup`, `/exit`
+- Session resume: `python -m obektclaw sessions resume <id>`
 
 #### Telegram (`telegram.py`)
 - Long-polling bot
@@ -370,7 +371,7 @@ All via environment variables or `.env`:
 
 ## Testing Strategy
 
-- **Unit tests:** `tests/` (235 tests, all offline)
+- **Unit tests:** `tests/` (326 tests, all offline)
 - **Fake LLM:** `FakeLLMClient` for deterministic tests
 - **Temp storage:** `OBEKTCLAW_HOME=/tmp/...` for isolation
 - **No live tests:** Token cost; use smoke test script
@@ -387,7 +388,9 @@ All via environment variables or `.env`:
 
 ## Future Work
 
-- [ ] Memory cleanup (auto-expiry + contradiction detection)
+- [x] Session management (list, show, export, resume)
+- [x] Context compaction at 85% pressure
+- [x] Memory cleanup (auto-expiry + contradiction detection)
 - [ ] Embeddings-based recall (optional, degrades to FTS5)
 - [ ] Multi-agent orchestration (parallel delegate)
 - [ ] HTTP MCP transport

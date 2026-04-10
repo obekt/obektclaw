@@ -2,7 +2,7 @@
 
 > **The AI agent you can read, own, and that actually gets smarter.**
 >
-> 2,900 lines. No containers. No vendor lock-in. No telemetry. Just a self-improving agent that fits in your head.
+> ~4,700 lines. No containers. No vendor lock-in. No telemetry. Just a self-improving agent that fits in your head.
 
 obektclaw is a minimal, complete implementation of the [Nous Research Hermes Agent](https://github.com/NousResearch/Hermes) concept — except it actually learns from every conversation. It features:
 
@@ -40,7 +40,7 @@ On first run, you'll see a guided setup wizard. After that, just `python -m obek
 
 | | obektclaw | OpenClaw | NanoClaw |
 |---|---|---|---|
-| **Codebase** | ~2,900 lines of Python. Read it in an afternoon. | 50k+ lines. Good luck auditing that. | Containers + Anthropic SDK. You're renting, not owning. |
+| **Codebase** | ~4,700 lines of Python. Read it in an afternoon. | 50k+ lines. Good luck auditing that. | Containers + Anthropic SDK. You're renting, not owning. |
 | **Memory** | 3-layer: session + persistent facts + 12-trait user model | Basic conversation history | Session-only, no user modeling |
 | **Self-improvement** | Learning Loop runs *every turn* — extracts facts, updates your model, creates & improves skills automatically | Manual skill creation | No skill system |
 | **Skills** | Plain markdown on disk. `vim` them. `git` them. The agent rewrites them as it learns. | Plugin system (code-heavy) | N/A |
@@ -115,6 +115,7 @@ Tools auto-register as `mcp__filesystem__read_file`, etc.
 | `/skills` | List known skills |
 | `/memory <q>` | Search persistent memory |
 | `/traits` | Show your user model |
+| `/sessions` | Browse and resume past sessions |
 | `/setup` | Configuration wizard |
 | `/exit` | Quit |
 
@@ -125,6 +126,15 @@ python -m obektclaw start          # Auto-detect CLI + Telegram
 python -m obektclaw start cli      # CLI only
 python -m obektclaw start tg       # Telegram only
 python -m obektclaw setup          # Setup wizard
+```
+
+### Session Management
+
+```bash
+python -m obektclaw sessions list              # List recent sessions
+python -m obektclaw sessions show <id>         # Show session details
+python -m obektclaw sessions export <id>       # Export (--format md|json, --output file)
+python -m obektclaw sessions resume <id>       # Resume a past session in CLI
 ```
 
 ### Manage
@@ -171,7 +181,7 @@ pip install -r requirements.txt  # includes pytest
 python -m pytest
 ```
 
-235 tests covering storage, skills, agent loop, and learning loop. All offline (fake LLM).
+326 tests covering storage, skills, agent loop, learning loop, sessions, and gateways. All offline (fake LLM).
 
 ## Security Model
 
@@ -184,8 +194,9 @@ python -m pytest
 
 ```
 obektclaw/
-├── obektclaw/              # Core package (yes, folder is still "obektclaw")
-│   ├── agent.py         # ReAct loop
+├── obektclaw/              # Core package
+│   ├── agent.py         # ReAct loop + session resume
+│   ├── sessions.py      # Session management, export, resume
 │   ├── learning.py      # Learning Loop
 │   ├── memory/          # 3-layer memory
 │   ├── skills/          # Markdown skill system
@@ -193,7 +204,7 @@ obektclaw/
 │   ├── mcp.py           # MCP bridge
 │   └── gateways/        # CLI + Telegram
 ├── bundled_skills/      # Starter skills
-├── tests/               # 235 tests
+├── tests/               # 326 tests
 ├── docs/                # Architecture + novelty docs
 ├── QUICKSTART.md        # Getting started
 └── README.md            # This file
@@ -217,7 +228,9 @@ MIT — see LICENSE file.
 
 ## Future Work
 
-- [ ] Memory cleanup (auto-expiry + contradiction detection)
+- [x] Session management (list, show, export, resume)
+- [x] Context compaction at 85% pressure
+- [x] Memory cleanup (auto-expiry + contradiction detection)
 - [ ] Embeddings-based recall (optional, degrades to FTS5)
 - [ ] Multi-agent orchestration (parallel delegate)
 - [ ] HTTP MCP transport

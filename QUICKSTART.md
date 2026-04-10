@@ -73,6 +73,7 @@ python -m obektclaw start tg       # Telegram only
 | `/skills` | List all available skills |
 | `/memory <query>` | Search your persistent memories |
 | `/traits` | Show what obektclaw learned about you |
+| `/sessions` | Browse and resume past sessions |
 | `/setup` | Configuration wizard |
 | `/exit` | Exit the chat |
 
@@ -82,6 +83,10 @@ python -m obektclaw start tg       # Telegram only
 |---------|-------------|
 | `python -m obektclaw start` | Start obektclaw (auto-detects gateways) |
 | `python -m obektclaw setup` | Run setup wizard |
+| `python -m obektclaw sessions list` | List recent sessions |
+| `python -m obektclaw sessions show <id>` | Show session details |
+| `python -m obektclaw sessions export <id>` | Export session (md or json) |
+| `python -m obektclaw sessions resume <id>` | Resume a past session |
 | `python -m obektclaw skill list` | List skills |
 | `python -m obektclaw memory search <q>` | Search memory |
 | `python -m obektclaw traits` | Show user model |
@@ -187,4 +192,4 @@ Run the test suite:
 python -m pytest
 ```
 
-All 235 tests should pass.
+All 326 tests should pass.

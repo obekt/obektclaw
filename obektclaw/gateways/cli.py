@@ -42,6 +42,7 @@ SLASH_COMMANDS: list[tuple[str, str]] = [
     ("/traits",     "Show your user model"),
     ("/model",      "Show or change the current LLM model"),
     ("/compact",    "Compact conversation history to save context"),
+    ("/sessions",   "Browse recent sessions"),
     ("/setup",      "Guided setup (Telegram, MCP, etc.)"),
     ("/exit",       "Quit the session"),
 ]
@@ -183,6 +184,7 @@ def show_help():
         ("/traits", "show user model"),
         ("/model", "show/change LLM model"),
         ("/compact", "compact conversation history"),
+        ("/sessions", "browse recent sessions"),
         ("/setup", "configure integrations"),
         ("/exit", "quit"),
     ]
@@ -442,29 +444,9 @@ def _check_config() -> bool:
     return bool(key) and key not in _PLACEHOLDER_KEYS
 
 
-def run() -> int:
-    config = CONFIG
-    if not _check_config():
-        result = _setup_wizard()
-        if result is None:
-            return 1
-        config = result
-
-    store = Store(config.db_path)
-    skills = SkillManager(store, config.skills_dir, config.bundled_skills_dir)
-
-    # Check if this is the first run (no sessions yet)
-    row = store.fetchone("SELECT COUNT(*) as c FROM sessions")
-    is_first_run = row["c"] == 0
-
-    agent = Agent(config=config, store=store, skills=skills, gateway="cli", user_key="cli-local")
-    agent_ref = [agent]  # mutable ref so toolbar can read live usage
-
-    if is_first_run:
-        _first_run_welcome()
-    else:
-        show_banner()
-
+def _repl(agent: Agent, store: Store, skills: SkillManager, config) -> int:
+    """Shared REPL loop used by both run() and run_with_session()."""
+    agent_ref = [agent]
     session = _make_session(agent_ref)
 
     try:
@@ -496,7 +478,7 @@ def run() -> int:
                     table.add_column("Name", style="bold cyan")
                     table.add_column("Description", style="dim")
                     table.add_column("Uses", justify="right", style="green")
-                    
+
                     for sk in all_skills:
                         table.add_row(
                             sk.name,
@@ -530,11 +512,11 @@ def run() -> int:
                     console.print()
                     console.print(f"[bold cyan]User model[/bold cyan] ({len(traits)} traits)")
                     console.print(Rule(style="cyan"))
-                    
+
                     table = Table(box=box.SIMPLE, padding=(0, 2))
                     table.add_column("Layer", style="bold cyan")
                     table.add_column("Value", style="white")
-                    
+
                     for t in traits:
                         table.add_row(t.layer, t.value)
                     console.print(table)
@@ -587,14 +569,14 @@ def run() -> int:
                     parts = args.split()
                     new_model = parts[0]
                     new_context = None
-                    
+
                     if len(parts) > 1:
                         try:
                             new_context = int(parts[1])
                         except ValueError:
                             console.print(f"  [red]Invalid context window: {parts[1]}[/red]")
                             continue
-                    
+
                     try:
                         result = agent.switch_model(
                             model=new_model,
@@ -626,7 +608,7 @@ def run() -> int:
                 console.print()
                 with console.status("[cyan]Compacting context...[/cyan]", spinner="dots"):
                     result = agent.compact_context(force=True)
-                
+
                 if result["compacted"]:
                     console.print(Panel(
                         f"[green]✓ Context compacted successfully[/green]\n\n"
@@ -645,6 +627,9 @@ def run() -> int:
                         box=box.ROUNDED,
                     ))
                 console.print()
+                continue
+            if line == "/sessions":
+                _show_sessions(store)
                 continue
 
             # ── Agent turn ──────────────────────────────────────────────
@@ -705,7 +690,7 @@ def run() -> int:
                         box=box.ROUNDED,
                     ))
                 continue
-            
+
             # Display agent response with rich markdown rendering
             console.print()
             response_panel = Panel(
@@ -717,7 +702,7 @@ def run() -> int:
             )
             console.print(response_panel)
             console.print()
-            
+
             # Warn when context is getting tight
             try:
                 pressure = agent._context_pressure()
@@ -735,4 +720,102 @@ def run() -> int:
         agent.close()
         store.close()
     return 0
+
+
+def _show_sessions(store: Store) -> None:
+    """Show recent sessions in the interactive CLI."""
+    from ..sessions import list_sessions
+
+    sessions = list_sessions(store, limit=15)
+    if not sessions:
+        console.print("  [dim]No past sessions.[/dim]")
+        return
+
+    console.print()
+    table = Table(
+        title="Recent Sessions",
+        box=box.ROUNDED,
+        border_style="cyan",
+    )
+    table.add_column("ID", style="bold cyan", justify="right")
+    table.add_column("Started", style="white")
+    table.add_column("Duration", justify="right", style="dim")
+    table.add_column("GW", style="dim")
+    table.add_column("Msgs", justify="right", style="green")
+    table.add_column("Preview", style="dim", max_width=40)
+
+    for s in sessions:
+        table.add_row(
+            str(s.id),
+            s.started_str,
+            s.duration_str,
+            s.gateway,
+            str(s.message_count),
+            s.preview,
+        )
+    console.print(table)
+    console.print()
+    console.print(
+        "  [dim]Resume: [cyan]python -m obektclaw sessions resume <id>[/cyan]  "
+        "Export: [cyan]python -m obektclaw sessions export <id>[/cyan][/dim]"
+    )
+    console.print()
+
+
+def run() -> int:
+    config = CONFIG
+    if not _check_config():
+        result = _setup_wizard()
+        if result is None:
+            return 1
+        config = result
+
+    store = Store(config.db_path)
+    skills = SkillManager(store, config.skills_dir, config.bundled_skills_dir)
+
+    # Check if this is the first run (no sessions yet)
+    row = store.fetchone("SELECT COUNT(*) as c FROM sessions")
+    is_first_run = row["c"] == 0
+
+    agent = Agent(config=config, store=store, skills=skills, gateway="cli", user_key="cli-local")
+
+    if is_first_run:
+        _first_run_welcome()
+    else:
+        show_banner()
+
+    return _repl(agent, store, skills, config)
+
+
+def run_with_session(session_id: int, info) -> int:
+    """Resume an old session in CLI mode."""
+    config = CONFIG
+    if not _check_config():
+        result = _setup_wizard()
+        if result is None:
+            return 1
+        config = result
+
+    store = Store(config.db_path)
+    skills = SkillManager(store, config.skills_dir, config.bundled_skills_dir)
+
+    agent = Agent(
+        config=config, store=store, skills=skills,
+        gateway="cli", user_key="cli-local",
+        session_id=session_id,
+    )
+
+    console.print(Panel(
+        f"Resuming session #{info.id}\n"
+        f"[cyan]Started:[/cyan] {info.started_str}  "
+        f"[cyan]Messages:[/cyan] {info.message_count}  "
+        f"[cyan]Gateway:[/cyan] {info.gateway}\n"
+        f"[dim]{info.preview}[/dim]",
+        title="[cyan]Session Resume[/cyan]",
+        border_style="green",
+        box=box.ROUNDED,
+    ))
+    console.print()
+
+    return _repl(agent, store, skills, config)
 

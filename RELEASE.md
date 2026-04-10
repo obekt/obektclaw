@@ -55,7 +55,7 @@ python -m obektclaw chat  # Test fresh install
 # All tests must pass
 python -m pytest -v
 
-# Expected: 235 passed
+# Expected: 326 passed
 ```
 
 ## 5. Documentation Review
@@ -112,7 +112,7 @@ Use a clear, descriptive message:
 ```
 Initial release: obektclaw v0.1.0
 
-A minimal, self-improving AI agent implementation (~2,900 lines).
+A minimal, self-improving AI agent implementation (~4,700 lines).
 
 Features:
 - Three-layer memory (session + persistent + 12-layer user model)
@@ -120,7 +120,7 @@ Features:
 - 16 built-in tools + MCP bridge
 - Learning Loop (retrospects after every turn)
 - CLI + Telegram gateways
-- 235 tests (all offline)
+- 326 tests (all offline)
 
 Based on the Nous Research Hermes Agent concept.
 ```

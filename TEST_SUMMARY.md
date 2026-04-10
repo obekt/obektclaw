@@ -41,6 +41,7 @@ This document summarizes the comprehensive test suite and improvements added to 
 | `tests/test_main.py` | 11 | CLI dispatcher |
 | `tests/test_compaction.py` | 16 | Context compaction |
 | `tests/test_integration.py` | 15 | Multi-turn conversations |
+| `tests/test_sessions.py` | 37 | Session list, show, export, resume |
 | `tests/test_memory_cleanup.py` | 8 | Memory cleanup command |
 | `tests/test_memory_missing.py` | 8 | Memory edge cases |
 | `tests/test_skills_missing.py` | 10 | Skills edge cases |
@@ -53,7 +54,7 @@ This document summarizes the comprehensive test suite and improvements added to 
 | `tests/test_learning_missing.py` | 4 | Learning loop errors |
 | `tests/test_config_missing.py` | 3 | Config error cases |
 
-**Total: ~300 tests across 26 test files**
+**Total: 326 tests across 27 test files**
 
 ## Key Improvements to Core Code
 
@@ -121,6 +122,7 @@ All tests should pass.
 | Config | 12 | ✅ Complete |
 | Tools | 43 | ✅ Complete |
 | Gateways | 13 | ✅ Complete |
+| Sessions | 37 | ✅ Complete |
 | MCP | 17 | ✅ Complete |
 | Integration | 23 | ✅ Complete |
 | Model Context | 15 | ✅ Complete |

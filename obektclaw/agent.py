@@ -70,6 +70,7 @@ class Agent:
         run_learning_loop: bool = True,
         load_mcp: bool = True,
         status_fn: callable | None = None,
+        session_id: int | None = None,
     ):
         self.config = config
         self.store = store
@@ -86,8 +87,13 @@ class Agent:
         self.run_learning_loop_flag = run_learning_loop
         self._mcp_servers: list | None = None
         self._status_fn = status_fn
+        self._resumed = session_id is not None
 
-        self.session_id = store.open_session(gateway, user_key)
+        if session_id is not None:
+            # Resume an existing session
+            self.session_id = session_id
+        else:
+            self.session_id = store.open_session(gateway, user_key)
         self.session = SessionMemory(store, self.session_id)
         self.persistent = PersistentMemory(store)
         self.user_model = UserModel(store)
