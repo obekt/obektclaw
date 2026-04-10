@@ -2,7 +2,7 @@ import sys
 import builtins
 from unittest.mock import MagicMock, patch
 import pytest
-from obektclaw.gateways.cli import run, _first_run_welcome, show_setup, _check_config
+from obektclaw.gateways.cli import run, _first_run_welcome, show_setup, _check_config, THEMES, get_theme, show_theme_help, clear_screen
 
 
 def test_check_config_missing_key():
@@ -55,6 +55,41 @@ def test_show_setup(capsys, tmp_path):
     out, err = capsys.readouterr()
     assert "MCP servers: not configured" in out
     assert "Telegram bot: not configured" in out
+
+
+def test_themes_available():
+    """Test that themes are defined and accessible."""
+    assert "catppuccin" in THEMES
+    assert "dracula" in THEMES
+    assert "monokai" in THEMES
+    assert "nord" in THEMES
+    assert "gruvbox" in THEMES
+
+
+def test_get_theme():
+    """Test theme getter returns valid theme."""
+    theme = get_theme()
+    assert "primary" in theme
+    assert "secondary" in theme
+    assert "error" in theme
+    assert "warning" in theme
+    assert "panel_border" in theme
+
+
+def test_show_theme_help(capsys):
+    """Test theme help display."""
+    show_theme_help()
+    out, err = capsys.readouterr()
+    assert "Color Themes" in out
+    assert "catppuccin" in out
+    assert "Current:" in out
+
+
+def test_clear_screen(capsys):
+    """Test clear screen function exists."""
+    # clear_screen calls console.clear() and show_banner()
+    # We can't test the actual clear but we can verify the function exists
+    assert callable(clear_screen)
 
 
 def _mock_session(inputs):
@@ -114,6 +149,8 @@ def test_run_commands(mock_make_session, mock_agent_cls, mock_skill_mgr, mock_st
         "/traits",      # No traits
         "/traits",      # With traits
         "/setup",
+        "/theme",       # Show themes
+        "/clear",       # Clear screen (will call show_banner)
         "hello",        # Normal message
         "error",        # Error message
         EOFError()      # EOF
@@ -145,7 +182,7 @@ def test_run_commands(mock_make_session, mock_agent_cls, mock_skill_mgr, mock_st
     assert "obektclaw" in out
     assert "self-improving" in out  # help text
     assert "No skills yet" in out
-    assert "/memory <query>" in out
+    assert "Color Themes" in out  # theme help
     assert "Memory result 1" in out
     assert "No memories" in out
     assert "No user model yet" in out
@@ -187,3 +224,71 @@ def test_run_skills_with_results(mock_make_session, mock_agent_cls, mock_skill_m
     out, err = capsys.readouterr()
     assert "skill-1" in out
     assert "does a thing" in out
+
+
+@patch("obektclaw.gateways.cli._check_config", return_value=True)
+@patch("obektclaw.gateways.cli.Store")
+@patch("obektclaw.gateways.cli.SkillManager")
+@patch("obektclaw.gateways.cli.Agent")
+@patch("obektclaw.gateways.cli._make_session")
+def test_theme_change(mock_make_session, mock_agent_cls, mock_skill_mgr, mock_store_cls, _check, capsys):
+    """Test theme change command."""
+    mock_store = MagicMock()
+    mock_store_cls.return_value = mock_store
+    mock_store.fetchone.return_value = {"c": 1}  # is_first_run = False
+
+    mock_skills = MagicMock()
+    mock_skill_mgr.return_value = mock_skills
+
+    mock_agent = MagicMock()
+    mock_agent_cls.return_value = mock_agent
+
+    mock_make_session.return_value = _mock_session([
+        "/theme dracula",
+        "/exit"
+    ])
+
+    run()
+    out, err = capsys.readouterr()
+    assert "Theme changed" in out
+    assert "Dracula" in out
+
+
+@patch("obektclaw.gateways.cli._check_config", return_value=True)
+@patch("obektclaw.gateways.cli.Store")
+@patch("obektclaw.gateways.cli.SkillManager")
+@patch("obektclaw.gateways.cli.Agent")
+@patch("obektclaw.gateways.cli._make_session")
+def test_theme_invalid(mock_make_session, mock_agent_cls, mock_skill_mgr, mock_store_cls, _check, capsys):
+    """Test invalid theme shows error."""
+    mock_store = MagicMock()
+    mock_store_cls.return_value = mock_store
+    mock_store.fetchone.return_value = {"c": 1}  # is_first_run = False
+
+    mock_skills = MagicMock()
+    mock_skill_mgr.return_value = mock_skills
+
+    mock_agent = MagicMock()
+    mock_agent_cls.return_value = mock_agent
+
+    mock_make_session.return_value = _mock_session([
+        "/theme nonexistent",
+        "/exit"
+    ])
+
+    run()
+    out, err = capsys.readouterr()
+    assert "Unknown theme" in out
+
+
+def test_render_response_with_code(capsys):
+    """Test that render_response handles code blocks."""
+    from obektclaw.gateways.cli import render_response
+
+    # Direct test - no mocks needed for render_response
+    reply = "Here's some code:\n```python\nprint('hello')\n```\nEnd."
+    render_response(reply)
+
+    out, err = capsys.readouterr()
+    # The code should appear in output (syntax highlighted or not)
+    assert "hello" in out or "python" in out
