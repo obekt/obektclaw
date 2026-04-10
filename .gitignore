@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets and credentials (CRITICAL)
+.env
+.env.local
+.env.*.local
+
+# Runtime data (user-specific, not for git)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+logs/
+*.jsonl
+
+# User data directory (default: ~/.obektclaw)
+# This is outside the repo but explicitly excluded here for safety
+/.obektclaw/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Type checking
+.mypy_cache/
+.pytype/
+
+# Documentation builds
+docs/_build/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# MCP config (may contain secrets)
+mcp.json
+mcp.local.json
+
+# Node modules (if using MCP servers with npx)
+node_modules/
+
+# Qwen Code local settings
+.qwen/
