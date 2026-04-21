@@ -421,7 +421,7 @@ If I were the next agent picking this up, I would do these in order:
 
 ## 16. Things you should NOT do without asking the user first
 
-- Commit anything to git (the user has not asked for any commits in this project yet).
+- Commit anything to git without user confirmation.
 - Modify `.env` or rotate the API key.
 - Change the storage format in a way that requires migration (the SQLite schema should evolve additively only — new tables or new columns with defaults).
 - Add a heavy dependency (langchain, llamaindex, a vector DB, an ORM). The point of obektclaw is that it's small and you can read every line.
@@ -446,4 +446,4 @@ If I were the next agent picking this up, I would do these in order:
 
 ## 18. One-paragraph summary you can paste to a fresh agent
 
-> obektclaw is a ~4,700-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), three-layer SQLite+FTS5 memory (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), a Learning Loop that runs structured retrospection after every turn (`obektclaw/learning.py`), and session management with export and resume (`obektclaw/sessions.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 326 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, tools, sessions, and gateways. Read `AGENTS.md` before changing anything.
+> obektclaw is a ~4,700-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), three-layer SQLite+FTS5 memory (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), a Learning Loop that runs structured retrospection after every turn (`obektclaw/learning.py`), and session management with export and resume (`obektclaw/sessions.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 333 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, tools, sessions, and gateways. Read `AGENTS.md` before changing anything.

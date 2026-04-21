@@ -67,6 +67,7 @@ def _chunk(s: str, n: int):
 
 
 def run() -> int:
+    global CONFIG
     # Handle stale empty env vars — reload config from .env files if needed
     if not CONFIG.tg_token:
         # Clear stale empty vars and reload
@@ -74,13 +75,15 @@ def run() -> int:
             if key in os.environ and not os.environ[key]:
                 del os.environ[key]
         # Reload config by re-reading .env files
-        from ..config import _read_env_file
+        from ..config import _read_env_file, load_config
         from pathlib import Path
         home = Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
         project_env = Path(__file__).resolve().parent.parent / ".env"
         _read_env_file(project_env)
         _read_env_file(home / ".env")
-    
+        # Actually reload the CONFIG singleton so the new values are picked up
+        CONFIG = load_config()
+
     if not CONFIG.tg_token:
         print("OBEKTCLAW_TG_TOKEN not set. Add it to ~/.obektclaw/.env and try again.")
         return 1

@@ -169,8 +169,16 @@ class Agent:
                 self._status("compacting context...")
                 compact_result = self.compact_context()
                 if compact_result["compacted"]:
-                    # Rebuild messages after compaction
+                    # Rebuild messages after compaction, but preserve the current
+                    # turn's in-flight assistant/tool messages (they're not in
+                    # session memory yet).
+                    turn_tail: list[dict] = []
+                    for i in range(len(messages) - 1, -1, -1):
+                        if messages[i].get("role") == "user":
+                            turn_tail = messages[i + 1 :]
+                            break
                     messages = self._build_messages(user_text)
+                    messages.extend(turn_tail)
                 elif self._context_pressure() > 0.75:
                     # Compaction failed or didn't happen, fall back to truncation
                     messages = self._truncate_messages(messages)
@@ -328,7 +336,8 @@ class Agent:
         """Return 0.0–1.0 indicating how full the context window is."""
         if not self.last_usage:
             return 0.0
-        used = self.last_usage.prompt_tokens + self.last_usage.completion_tokens
+        # prompt_tokens reflects the current context size sent to the model
+        used = self.last_usage.prompt_tokens
         return min(used / self.context_window, 1.0) if self.context_window else 0.0
 
     def compact_context(self, *, force: bool = False) -> dict:
@@ -473,24 +482,33 @@ class Agent:
             }
 
     def _truncate_messages(self, messages: list[dict]) -> list[dict]:
-        """Drop older conversation turns (keeping system + latest user) when
+        """Drop older conversation turns (keeping system + current turn) when
         context pressure is high. Uses a simple strategy: keep the system
         message, drop the oldest user/assistant pairs first, always keep the
-        last user message.
+        entire current turn (last user message + any assistant/tool messages).
 
         Adds a summary marker so the agent knows context was trimmed.
         """
         if len(messages) <= 3:
             return messages  # system + at most 1 exchange — nothing to drop
 
-        # Reserve: system (first), current user (last)
+        # Find the last user message — that's the start of the current turn
+        last_user_idx = None
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx is None or last_user_idx <= 1:
+            return messages  # No user message or too short to trim
+
         system_msg = messages[0]
-        current_user = messages[-1]
-        middle = messages[1:-1]
+        current_turn = messages[last_user_idx:]  # user + assistant + tool results
+        middle = messages[1:last_user_idx]
 
         # Drop the oldest half of middle messages
         keep = max(len(middle) // 2, 2)
-        trimmed_middle = middle[-keep:]
+        trimmed_middle = middle[-keep:] if len(middle) > keep else middle
 
         summary = {
             "role": "system",
@@ -499,7 +517,7 @@ class Agent:
                 "context window. Key facts are preserved in persistent memory.]"
             ),
         }
-        return [system_msg, summary] + trimmed_middle + [current_user]
+        return [system_msg, summary] + trimmed_middle + current_turn
 
     # ----- prompt assembly -----
     def _build_messages(self, user_text: str) -> list[dict]:

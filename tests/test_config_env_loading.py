@@ -17,14 +17,16 @@ class TestPlaceholderHandling:
         """Placeholder API keys should not be set."""
         env_file = tmp_path / ".env"
         env_file.write_text("OBEKTCLAW_LLM_API_KEY=your-api-key-here\n")
-        
-        # Clear any existing value
-        os.environ.pop("TEST_PLACEHOLDER_KEY", None)
-        
-        _read_env_file(env_file)
-        
-        # Should not have been set (it's a placeholder)
-        assert os.environ.get("OBEKTCLAW_LLM_API_KEY", "") in _PLACEHOLDER_VALUES
+
+        # Clear any existing value so the test starts clean
+        old_key = os.environ.pop("OBEKTCLAW_LLM_API_KEY", None)
+        try:
+            _read_env_file(env_file)
+            # Should not have been set (it's a placeholder)
+            assert os.environ.get("OBEKTCLAW_LLM_API_KEY", "") in _PLACEHOLDER_VALUES
+        finally:
+            if old_key is not None:
+                os.environ["OBEKTCLAW_LLM_API_KEY"] = old_key
 
     def test_real_value_gets_set(self, tmp_path):
         """Real values should be set even if other lines are placeholders."""

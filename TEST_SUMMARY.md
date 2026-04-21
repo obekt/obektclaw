@@ -54,7 +54,7 @@ This document summarizes the comprehensive test suite and improvements added to 
 | `tests/test_learning_missing.py` | 4 | Learning loop errors |
 | `tests/test_config_missing.py` | 3 | Config error cases |
 
-**Total: 326 tests across 27 test files**
+**Total: 333 tests across 27 test files**
 
 ## Key Improvements to Core Code
 

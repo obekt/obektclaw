@@ -407,6 +407,7 @@ def _stream_text(text: str, delay: float = 0.02) -> None:
     buffer = ""
 
     def generate():
+        nonlocal buffer
         for char in text:
             buffer += char
             yield Text(buffer, style=theme["primary"])

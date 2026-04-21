@@ -38,6 +38,10 @@ as a JSON object with this shape:
      "value": "the fact",
      "confidence": 0.0..1.0}
   ],
+  "deleted_facts": [
+    {"category": "user|project|env|preference|general",
+     "key": "short_snake_key"}
+  ],
   "user_model_updates": [
     {"layer": "one of the 12 layers",
      "value": "concise inference",

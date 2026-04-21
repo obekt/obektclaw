@@ -40,12 +40,15 @@ def test_chat_worker():
         mock_send.assert_any_call(123, "reply 1")
         mock_send.assert_any_call(123, "error: agent error")
 
+@patch("obektclaw.config.load_config")
 @patch("obektclaw.gateways.telegram.Store")
 @patch("obektclaw.gateways.telegram.SkillManager")
 @patch("obektclaw.gateways.telegram.httpx.Client")
 @patch("obektclaw.gateways.telegram.CONFIG")
-def test_run_no_token(mock_config, mock_client, mock_skills, mock_store, capsys):
+def test_run_no_token(mock_config, mock_client, mock_skills, mock_store, mock_load_config, capsys):
     mock_config.tg_token = ""
+    # If run() tries to reload config from disk, return the mocked empty config
+    mock_load_config.return_value = mock_config
     assert run() == 1
     out, err = capsys.readouterr()
     assert "OBEKTCLAW_TG_TOKEN not set" in out

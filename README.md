@@ -181,7 +181,7 @@ pip install -r requirements.txt  # includes pytest
 python -m pytest
 ```
 
-326 tests covering storage, skills, agent loop, learning loop, sessions, and gateways. All offline (fake LLM).
+333 tests covering storage, skills, agent loop, learning loop, sessions, and gateways. All offline (fake LLM).
 
 ## Security Model
 
@@ -204,7 +204,7 @@ obektclaw/
 │   ├── mcp.py           # MCP bridge
 │   └── gateways/        # CLI + Telegram
 ├── bundled_skills/      # Starter skills
-├── tests/               # 326 tests
+├── tests/               # 333 tests
 ├── docs/                # Architecture + novelty docs
 ├── QUICKSTART.md        # Getting started
 └── README.md            # This file
