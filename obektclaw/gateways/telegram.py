@@ -15,8 +15,11 @@ import httpx
 
 from ..agent import Agent
 from ..config import CONFIG, load_config
+from ..logging_config import get_logger
 from ..memory.store import Store
 from ..skills import SkillManager
+
+log = get_logger(__name__)
 
 
 API = "https://api.telegram.org/bot{token}/{method}"
@@ -116,7 +119,7 @@ def run() -> int:
             pass  # Silently ignore — typing indicator is non-critical
 
     offset: int | None = None
-    print("obektclaw telegram bot running (long-poll)")
+    log.info("telegram_gateway_start token_set=%d workers=0", bool(CONFIG.tg_token))
     try:
         while True:
             try:
@@ -129,7 +132,7 @@ def run() -> int:
                 )
                 data = resp.json()
             except (httpx.HTTPError, ValueError) as e:
-                print(f"[tg] poll error: {e}")
+                log.error("telegram_poll_error error=%s", e)
                 time.sleep(2)
                 continue
             for update in data.get("result", []):
@@ -148,10 +151,12 @@ def run() -> int:
                     worker = _ChatWorker(chat_id, store, skills, send, send_chat_action)
                     worker.start()
                     workers[chat_id] = worker
+                    log.info("telegram_worker_started chat=%d", chat_id)
                 worker.queue.put(text)
     except KeyboardInterrupt:
         pass
     finally:
+        log.info("telegram_gateway_shutdown workers=%d", len(workers))
         # Graceful shutdown: send sentinel to each worker
         for w in workers.values():
             w.queue.put(_ChatWorker._STOP_SENTINEL)

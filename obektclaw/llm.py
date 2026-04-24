@@ -14,8 +14,11 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .logging_config import get_logger
 from openai import OpenAI
 from openai import APIError, APIConnectionError, RateLimitError
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -74,11 +77,15 @@ class LLMClient:
         for attempt in range(4):
             try:
                 resp = self.client.chat.completions.create(**kwargs)
+                log.info("llm_call model=%s tokens=%d attempts=%d",
+                         self.model, resp.usage.total_tokens if resp.usage else 0, attempt + 1)
                 break
             except (RateLimitError, APIConnectionError, APIError) as e:
                 last_err = e
+                log.warning("llm_call_error model=%s attempt=%d error=%s", self.model, attempt + 1, e)
                 time.sleep(min(2 ** attempt, 8))
         else:
+            log.error("llm_call_failed model=%s retries_exhausted", self.model)
             raise RuntimeError(f"LLM call failed after retries: {last_err}")
 
         choice = resp.choices[0]

@@ -21,11 +21,14 @@ from dataclasses import dataclass
 
 from .config import Config
 from .llm import LLMClient, LLMResponse, TokenUsage
+from .logging_config import get_logger
 from .memory import PersistentMemory, SessionMemory, UserModel
 from .memory.store import Store
 from .model_context import get_context_window, save_user_model_override
 from .skills import SkillManager
 from .tools import ToolContext, ToolRegistry, build_default_registry
+
+log = get_logger(__name__)
 
 
 SYSTEM_PROMPT = """You are obektclaw, a self-improving personal AI agent.
@@ -121,13 +124,11 @@ class Agent:
 
         # Log context window detection at startup
         source = "config" if config.context_window else "auto-detected"
-        print(
-            f"[agent] model={config.llm_model}, context_window={self.context_window:,} tokens ({source})",
-            file=sys.stderr,
-        )
+        log.info("model=%s context_window=%d tokens=%s", config.llm_model, self.context_window, source)
 
         # Log MCP success if servers were loaded
         if self._mcp_servers:
+            log.info("mcp_servers_loaded=%d", len(self._mcp_servers))
             self.session.add("system", f"MCP: {len(self._mcp_servers)} server(s) loaded")
 
     # ----- public API -----
@@ -169,6 +170,8 @@ class Agent:
                 self._status("compacting context...")
                 compact_result = self.compact_context()
                 if compact_result["compacted"]:
+                    log.info("context_compacted turns=%d summary_words=%d tokens_saved=%d",
+                             len(to_compact), compact_result["summary_length"], compact_result["tokens_saved"])
                     # Rebuild messages after compaction, but preserve the current
                     # turn's in-flight assistant/tool messages (they're not in
                     # session memory yet).
@@ -182,6 +185,7 @@ class Agent:
                 elif self._context_pressure() > 0.75:
                     # Compaction failed or didn't happen, fall back to truncation
                     messages = self._truncate_messages(messages)
+                    log.warning("context_truncated pressure=%.2f", pressure)
 
             try:
                 resp: LLMResponse = self.llm.chat(messages, tools=self.registry.to_openai_tools())
@@ -228,7 +232,11 @@ class Agent:
                 tool_steps += 1
                 if _fn:
                     _fn(f"using {tc.name}")
+                log.debug("tool_call tool=%s args=%s", tc.name, tc.arguments[:200])
                 result = self.registry.call(tc.name, tc.arguments, ctx)
+                log.info("tool_result tool=%s error=%s", tc.name, result.is_error)
+                if result.is_error:
+                    log.warning("tool_error tool=%s msg=%s", tc.name, result.content[:500])
                 self.session.add(
                     "tool",
                     result.content,
@@ -248,6 +256,8 @@ class Agent:
 
         if self.run_learning_loop_flag:
             turn = Turn(user_text, assistant_text, tool_steps)
+            log.info("turn_complete user_len=%d tool_steps=%d tokens=%d",
+                     len(user_text), tool_steps, self.turn_tokens)
             def _run_learning_loop():
                 try:
                     from .learning import LearningLoop
@@ -312,6 +322,8 @@ class Agent:
         self.context_window = new_window
         
         # Log the switch
+        log.info("model_switched from=%s to=%s context_window=%d overridden=%s",
+                 self.config.llm_model, model, new_window, was_overridden)
         self.session.add(
             "system",
             f"Model switched from {self.config.llm_model} → {model} "

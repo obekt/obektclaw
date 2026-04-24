@@ -18,7 +18,10 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .logging_config import get_logger
 from .tools.registry import Tool, ToolContext, ToolRegistry, ToolResult
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -151,9 +154,10 @@ def attach_mcp_servers(registry: ToolRegistry, specs: list[MCPServerSpec]) -> li
             srv.start()
             tools = srv.list_tools()
         except Exception as e:  # noqa: BLE001
-            print(f"[mcp] failed to start {spec.name}: {e}")
+            log.error("mcp_server_start_failed server=%s", spec.name, exc_info=True)
             continue
         servers.append(srv)
+        log.info("mcp_server_started server=%s tools=%d", spec.name, len(tools))
         for t in tools:
             tname = t.get("name")
             if not tname:

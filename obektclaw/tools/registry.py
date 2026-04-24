@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     from ..skills import SkillManager
     from ..llm import LLMClient
 
+from ..logging_config import get_logger
+
+log = get_logger(__name__)
+
 
 @dataclass
 class ToolContext:
@@ -76,17 +80,20 @@ class ToolRegistry:
     def call(self, name: str, args_json: str | dict, ctx: ToolContext) -> ToolResult:
         tool = self.get(name)
         if tool is None:
+            log.warning("tool_not_found name=%s", name)
             return ToolResult(f"unknown tool: {name}", is_error=True)
         if isinstance(args_json, str):
             try:
                 args = json.loads(args_json) if args_json.strip() else {}
             except json.JSONDecodeError as e:
+                log.warning("tool_invalid_args tool=%s error=%s", name, e)
                 return ToolResult(f"invalid JSON args: {e}", is_error=True)
         else:
             args = args_json or {}
         try:
             return tool.fn(args, ctx)
         except Exception as e:  # noqa: BLE001
+            log.error("tool_crash tool=%s error=%s", name, e, exc_info=True)
             tb = traceback.format_exc(limit=4)
             return ToolResult(f"tool {name} crashed: {e}\n{tb}", is_error=True)
 
@@ -102,4 +109,5 @@ def build_default_registry() -> ToolRegistry:
     memory_tools.register(reg)
     skill_tools.register(reg)
     delegate.register(reg)
+    log.info("tools_registered count=%d", len(reg.all()))
     return reg

@@ -23,6 +23,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .agent import Agent, Turn
 
+from .logging_config import get_logger
+
+log = get_logger(__name__)
+
 
 RETRO_SYSTEM = """You are the Learning Loop for a self-improving agent.
 
@@ -107,6 +111,7 @@ class LearningLoop:
         if len(turn.user_text) < 12 and turn.tool_steps == 0:
             return
 
+        log.info("learning_loop_start user_len=%d tool_steps=%d", len(turn.user_text), turn.tool_steps)
         snapshot = self.agent.user_model.render_for_prompt()
         user_msg = (
             f"## User said\n{turn.user_text}\n\n"
@@ -117,7 +122,15 @@ class LearningLoop:
 
         retro = self.agent.llm.chat_json(RETRO_SYSTEM, user_msg, fast=True)
         if not retro:
+            fast_model = getattr(self.agent.llm, "fast_model", "unknown")
+            log.warning("learning_loop_retro_failed model=%s", fast_model)
             return
+
+        log.info("learning_loop_retro_ok facts=%d updates=%d new_skill=%s improvement=%s",
+                 len(retro.get("facts") or []),
+                 len(retro.get("user_model_updates") or []),
+                 bool(retro.get("new_skill")),
+                 bool(retro.get("skill_improvement")))
 
         # Persist retro JSON to logs for debugging
         self._persist_retro(retro)

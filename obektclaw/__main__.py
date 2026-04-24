@@ -5,8 +5,11 @@ import json
 import sys
 
 from .config import CONFIG
+from .logging_config import get_logger
 from .memory.store import Store
 from .skills import SkillManager
+
+log = get_logger(__name__)
 
 
 USAGE = """usage: python -m obektclaw [command] [args]
@@ -56,6 +59,8 @@ def _start_auto(mode: str | None = None) -> int:
     mode = (mode or "auto").lower()
     want_cli = mode in ("auto", "cli")
     want_tg = mode in ("auto", "tg") and _cfg.tg_token
+
+    log.info("gateway_start mode=%s cli=%s telegram=%s", mode, want_cli, want_tg)
 
     if mode == "auto":
         # Announce what's starting

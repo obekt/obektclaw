@@ -33,9 +33,12 @@ from rich import box, print as rprint
 
 from ..agent import Agent
 from ..config import CONFIG, load_config
+from ..logging_config import get_logger
 from ..memory.store import Store
 from ..model_context import get_context_window, list_known_models, guess_context_window
 from ..skills import SkillManager
+
+log = get_logger(__name__)
 
 # Initialize Rich console with custom theme support
 console = Console()
@@ -787,6 +790,8 @@ def _setup_wizard() -> "Config | None":
 def _check_config() -> bool:
     """Returns True if the API key looks real."""
     key = CONFIG.llm_api_key.strip()
+    if not key or key in _PLACEHOLDER_KEYS:
+        log.warning("config_missing_api_key home=%s", CONFIG.home)
     return bool(key) and key not in _PLACEHOLDER_KEYS
 
 
@@ -1133,10 +1138,13 @@ def _show_sessions(store: Store) -> None:
 def run() -> int:
     config = CONFIG
     if not _check_config():
+        log.info("setup_wizard_start")
         result = _setup_wizard()
         if result is None:
+            log.warning("setup_wizard_aborted")
             return 1
         config = result
+        log.info("setup_wizard_complete model=%s", config.llm_model)
 
     store = Store(config.db_path)
     skills = SkillManager(store, config.skills_dir, config.bundled_skills_dir)
@@ -1159,10 +1167,13 @@ def run_with_session(session_id: int, info) -> int:
     """Resume an old session in CLI mode with themed styling."""
     config = CONFIG
     if not _check_config():
+        log.info("setup_wizard_start (session resume)")
         result = _setup_wizard()
         if result is None:
+            log.warning("setup_wizard_aborted")
             return 1
         config = result
+        log.info("setup_wizard_complete model=%s", config.llm_model)
 
     store = Store(config.db_path)
     skills = SkillManager(store, config.skills_dir, config.bundled_skills_dir)

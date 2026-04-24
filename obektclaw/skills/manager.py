@@ -22,7 +22,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..logging_config import get_logger
 from ..memory.store import Store
+
+log = get_logger(__name__)
 
 
 SLUG_RE = re.compile(r"[^a-z0-9_-]+")
@@ -186,6 +189,7 @@ class SkillManager:
         self.reindex()
         sk = self.get(slug)
         assert sk is not None
+        log.info("skill_created name=%s path=%s", slug, path)
         return sk
 
     def improve(self, name: str, *, new_description: str | None = None, new_body: str | None = None,
@@ -202,6 +206,7 @@ class SkillManager:
             body = sk.body
         write_skill_file(sk.path, slugify(sk.name), desc, body)
         self.reindex()
+        log.info("skill_improved name=%s mode=%s", sk.name, "body" if new_body else ("append" if append else "description"))
         return self.get(sk.name)
 
     def record_use(self, name: str, success: bool) -> None:
@@ -215,3 +220,4 @@ class SkillManager:
                 "UPDATE skills SET use_count = use_count + 1 WHERE name = ?",
                 (name,),
             )
+        log.debug("skill_used name=%s success=%s", name, success)
