@@ -43,13 +43,7 @@ def mock_config(temp_chroma_path):
         tg_allowed_chat_ids=(),
         bash_timeout=30,
         workdir=temp_chroma_path.parent,
-        # Memory system defaults
         chroma_path=temp_chroma_path,
-        embedding_model="all-MiniLM-L6-v2",
-        embedding_dimension=384,
-        semantic_search_limit=10,
-        graph_traversal_depth=2,
-        context_assembly_max_tokens=2000,
     )
     return config
 
@@ -66,12 +60,11 @@ def mock_embedder():
 @pytest.fixture
 def vector_memory(mock_config, mock_embedder):
     """Create a VectorMemory instance with mocked dependencies."""
-    with patch("obektclaw.memory.vector_memory.CONFIG", mock_config):
-        from obektclaw.memory.vector_memory import VectorMemory
+    from obektclaw.memory.vector_memory import VectorMemory
 
-        vm = VectorMemory()
-        yield vm
-        vm.clear_all()
+    vm = VectorMemory(chroma_path=mock_config.chroma_path)
+    yield vm
+    vm.clear_all()
 
 
 # ============== Fact Tests ==============

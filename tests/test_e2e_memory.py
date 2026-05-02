@@ -119,22 +119,12 @@ def e2e_config(e2e_home: Path) -> Config:
             "OBEKTCLAW_LLM_FAST_MODEL",
             os.environ.get("OBEKTCLAW_LLM_MODEL", "gpt-4o-mini"),
         ),
-        extraction_llm_base_url=os.environ.get("OBEKTCLAW_EXTRACTION_LLM_BASE_URL"),
-        extraction_llm_api_key=os.environ.get("OBEKTCLAW_EXTRACTION_LLM_API_KEY"),
-        extraction_llm_model=os.environ.get("OBEKTCLAW_EXTRACTION_LLM_MODEL"),
         tg_token="",
         tg_allowed_chat_ids=(),
         bash_timeout=30,
         workdir=e2e_home,
-        # Memory system paths
         cog_home=e2e_home / "cog-home",
-        graph_name="obektclaw-test",
         chroma_path=e2e_home / "chroma",
-        embedding_model="all-MiniLM-L6-v2",
-        embedding_dimension=384,
-        semantic_search_limit=10,
-        graph_traversal_depth=2,
-        context_assembly_max_tokens=2000,
     )
 
 

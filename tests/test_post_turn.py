@@ -1,12 +1,12 @@
 """Tests for obektclaw/post_turn.py — Turn extraction.
 
 These tests verify that the TurnExtractor correctly:
-1. Parses LLM JSON responses from ExtractionLLMClient
+1. Parses LLM JSON responses from the main LLM client
 2. Persists facts to VectorMemory
 3. Updates user model layers
 4. Creates and improves skills
 
-Tests use a fake ExtractionLLMClient that returns preset JSON.
+Tests use a fake LLMClient that returns preset JSON.
 """
 
 import tempfile
@@ -18,7 +18,7 @@ import pytest
 from obektclaw.agent import Agent, Turn
 from obektclaw.config import Config
 from obektclaw.post_turn import TurnExtractor
-from obektclaw.llm import LLMClient, LLMResponse, ExtractionLLMClient
+from obektclaw.llm import LLMClient, LLMResponse
 from obektclaw.memory.store import Store
 from obektclaw.skills import SkillManager
 
@@ -28,6 +28,8 @@ class FakeMainLLM:
 
     def __init__(self):
         self.chat_calls: List[tuple] = []
+        self.chat_json_calls: List[tuple] = []
+        self.extraction_response: Optional[Dict[str, Any]] = None
 
     def chat(
         self,
@@ -49,31 +51,8 @@ class FakeMainLLM:
     def chat_json(
         self, system: str, user: str, *, fast: bool = True
     ) -> Optional[Dict[str, Any]]:
-        return {"notes": "test"}
-
-
-class FakeExtractionLLM:
-    """Fake ExtractionLLMClient that returns preset JSON for tests."""
-
-    def __init__(self, extraction_response: Optional[Dict[str, Any]] = None):
-        self.extraction_response = extraction_response
-        self.extract_calls: List[tuple] = []
-        self.model = "fake-extraction-model"
-        self.base_url = "http://fake"
-
-    def extract(
-        self,
-        system: str,
-        user: str,
-        *,
-        temperature: float = 0.2,
-        max_tokens: int = 2048,
-    ) -> Optional[Dict[str, Any]]:
-        self.extract_calls.append((system, user))
+        self.chat_json_calls.append((system, user))
         return self.extraction_response
-
-    def close(self) -> None:
-        pass
 
 
 @pytest.fixture
@@ -107,20 +86,15 @@ def extraction_env():
             llm_api_key="fake",
             llm_model="fake",
             llm_fast_model="fake",
-            extraction_llm_base_url=None,
-            extraction_llm_api_key=None,
-            extraction_llm_model=None,
             tg_token="",
             tg_allowed_chat_ids=(),
             bash_timeout=30,
             workdir=tmp,
             cog_home=cog_home,
             chroma_path=chroma_path,
-            graph_name="test_graph",
         )
 
         fake_main_llm = FakeMainLLM()
-        fake_extraction_llm = FakeExtractionLLM()
 
         agent = Agent(
             config=config,
@@ -132,12 +106,9 @@ def extraction_env():
             run_learning_loop=False,  # We'll call it manually
         )
 
-        # Override the extraction_llm with our fake
-        agent.extraction_llm = fake_extraction_llm
-
         extractor = TurnExtractor(agent)
 
-        yield agent, extractor, fake_extraction_llm, fake_main_llm, store, skills
+        yield agent, extractor, fake_main_llm, store, skills
         agent.close()
 
 
@@ -146,17 +117,17 @@ class TestTurnExtractorBasic:
 
     def test_skips_trivial_input(self, extraction_env):
         """Extractor should skip inputs < 12 chars with no tool steps."""
-        agent, extractor, fake_extraction_llm, _, _, _ = extraction_env
+        agent, extractor, fake_main_llm, _, _ = extraction_env
 
         turn = Turn(user_text="Hi", assistant_text="Hello!", tool_steps=0)
         extractor.extract(turn)
 
-        assert len(fake_extraction_llm.extract_calls) == 0
+        assert not fake_main_llm.chat_json_calls
 
     def test_runs_on_substantial_input(self, extraction_env):
         """Extractor should run on substantial input."""
-        agent, extractor, fake_extraction_llm, _, _, _ = extraction_env
-        fake_extraction_llm.extraction_response = {"notes": "test"}
+        agent, extractor, fake_main_llm, _, _ = extraction_env
+        fake_main_llm.extraction_response = {"notes": "test"}
 
         turn = Turn(
             user_text="Tell me about httpx vs requests",
@@ -165,27 +136,27 @@ class TestTurnExtractorBasic:
         )
         extractor.extract(turn)
 
-        assert len(fake_extraction_llm.extract_calls) == 1
+        assert len(fake_main_llm.chat_json_calls) == 1
 
     def test_runs_when_tools_used(self, extraction_env):
         """Extractor should run when tool steps were used."""
-        agent, extractor, fake_extraction_llm, _, _, _ = extraction_env
-        fake_extraction_llm.extraction_response = {"notes": "test"}
+        agent, extractor, fake_main_llm, _, _ = extraction_env
+        fake_main_llm.extraction_response = {"notes": "test"}
 
         # Short text but with tool steps
         turn = Turn(user_text="ls", assistant_text="file.txt", tool_steps=1)
         extractor.extract(turn)
 
-        assert len(fake_extraction_llm.extract_calls) == 1
+        assert len(fake_main_llm.chat_json_calls) == 1
 
 
 class TestFactPersistence:
     """Test that facts from extraction are persisted to VectorMemory."""
 
     def test_saves_single_fact(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [
                 {
                     "content": "prefers httpx over requests",
@@ -214,9 +185,9 @@ class TestFactPersistence:
         assert found
 
     def test_saves_multiple_facts(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [
                 {
                     "content": "httpx is preferred HTTP client",
@@ -256,9 +227,9 @@ class TestEntityPersistence:
     """Test that entities from extraction are persisted to GraphMemory."""
 
     def test_saves_entity_to_graph(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "entities": [
                 {
                     "name": "httpx",
@@ -289,12 +260,12 @@ class TestEntityPersistence:
         assert entity.entity_type == "tool"
 
     def test_saves_relation_to_graph(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
         # First, ensure user entity exists
         agent._ensure_user_entity()
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "entities": [
                 {
                     "name": "httpx",
@@ -338,9 +309,9 @@ class TestUserModelUpdates:
     """Test that user model updates are applied."""
 
     def test_updates_user_model_layer(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [],
             "entities": [],
             "relations": [],
@@ -376,9 +347,9 @@ class TestSkillCreation:
     """Test that new skills are created from extraction."""
 
     def test_creates_new_skill(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, skills = extraction_env
+        agent, extractor, fake_main_llm, store, skills = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [],
             "entities": [],
             "relations": [],
@@ -405,9 +376,9 @@ class TestSkillCreation:
         assert skill.description == "Deploy a server to Hetzner Cloud"
 
     def test_skips_skill_without_name(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, skills = extraction_env
+        agent, extractor, fake_main_llm, store, skills = extraction_env
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [],
             "entities": [],
             "relations": [],
@@ -437,7 +408,7 @@ class TestSkillImprovement:
     """Test that existing skills are improved."""
 
     def test_improves_existing_skill(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, skills = extraction_env
+        agent, extractor, fake_main_llm, store, skills = extraction_env
 
         # First create a skill
         skills.create(
@@ -446,7 +417,7 @@ class TestSkillImprovement:
             body="## Original\nStep 1: Do something",
         )
 
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [],
             "entities": [],
             "relations": [],
@@ -477,9 +448,9 @@ class TestErrorHandling:
     """Test that errors are handled gracefully."""
 
     def test_handles_null_extraction(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
-        fake_extraction_llm.extraction_response = None
+        fake_main_llm.extraction_response = None
 
         turn = Turn(
             user_text="I prefer httpx",
@@ -490,13 +461,13 @@ class TestErrorHandling:
         extractor.extract(turn)
 
         # Just verify it ran without crashing
-        assert len(fake_extraction_llm.extract_calls) == 1
+        assert len(fake_main_llm.chat_json_calls) == 1
 
     def test_handles_malformed_entity(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
         # Entity missing required 'name' field
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "entities": [
                 {"type": "tool", "confidence": 0.9}  # Missing 'name'
             ],
@@ -521,10 +492,10 @@ class TestErrorHandling:
         assert len(entities) == 0
 
     def test_handles_malformed_fact(self, extraction_env):
-        agent, extractor, fake_extraction_llm, _, store, _ = extraction_env
+        agent, extractor, fake_main_llm, store, _ = extraction_env
 
         # Fact missing required 'content' field
-        fake_extraction_llm.extraction_response = {
+        fake_main_llm.extraction_response = {
             "facts": [
                 {"category": "preference", "confidence": 0.9}  # Missing 'content'
             ],
@@ -549,95 +520,3 @@ class TestErrorHandling:
         # Just verify it didn't crash
 
 
-class TestExtractionLLMClient:
-    """Tests for ExtractionLLMClient class."""
-
-    def test_extract_returns_json(self):
-        """Test that extract() returns parsed JSON."""
-        from obektclaw.llm import ExtractionLLMClient
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            config = Config(
-                home=tmp,
-                db_path=tmp / "test.db",
-                skills_dir=tmp / "skills",
-                bundled_skills_dir=tmp / "bundled",
-                logs_dir=tmp / "logs",
-                llm_base_url="http://fake",
-                llm_api_key="fake",
-                llm_model="fake",
-                llm_fast_model="fake",
-                extraction_llm_base_url=None,
-                extraction_llm_api_key=None,
-                extraction_llm_model=None,
-                tg_token="",
-                tg_allowed_chat_ids=(),
-                bash_timeout=30,
-                workdir=tmp,
-            )
-
-            # Can't test actual API call without real LLM
-            # Just verify initialization works
-            try:
-                client = ExtractionLLMClient(config)
-                assert client.model == "fake"  # Falls back to llm_fast_model
-                assert client.base_url == "http://fake"
-            except Exception as e:
-                # Expected: OpenAI client will fail with fake URL
-                # But we can still verify config resolution
-                pass
-
-    def test_fallback_to_main_llm_config(self):
-        """Test that extraction LLM falls back to main LLM config."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            config = Config(
-                home=tmp,
-                db_path=tmp / "test.db",
-                skills_dir=tmp / "skills",
-                bundled_skills_dir=tmp / "bundled",
-                logs_dir=tmp / "logs",
-                llm_base_url="https://api.openai.com/v1",
-                llm_api_key="test-key",
-                llm_model="gpt-4o",
-                llm_fast_model="gpt-4o-mini",
-                extraction_llm_base_url=None,  # Falls back
-                extraction_llm_api_key=None,  # Falls back
-                extraction_llm_model=None,  # Falls back to fast_model
-                tg_token="",
-                tg_allowed_chat_ids=(),
-                bash_timeout=30,
-                workdir=tmp,
-            )
-
-            client = ExtractionLLMClient(config)
-            assert client.model == "gpt-4o-mini"  # Falls back to llm_fast_model
-            assert client.base_url == "https://api.openai.com/v1"
-
-    def test_extraction_model_overrides_fast_model(self):
-        """Test that explicit extraction model overrides fast_model."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            config = Config(
-                home=tmp,
-                db_path=tmp / "test.db",
-                skills_dir=tmp / "skills",
-                bundled_skills_dir=tmp / "bundled",
-                logs_dir=tmp / "logs",
-                llm_base_url="https://api.openai.com/v1",
-                llm_api_key="test-key",
-                llm_model="gpt-4o",
-                llm_fast_model="gpt-4o-mini",
-                extraction_llm_base_url="https://custom.api/v1",
-                extraction_llm_api_key="custom-key",
-                extraction_llm_model="custom-extraction-model",
-                tg_token="",
-                tg_allowed_chat_ids=(),
-                bash_timeout=30,
-                workdir=tmp,
-            )
-
-            client = ExtractionLLMClient(config)
-            assert client.model == "custom-extraction-model"
-            assert client.base_url == "https://custom.api/v1"

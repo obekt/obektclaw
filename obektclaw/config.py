@@ -64,27 +64,12 @@ class Config:
     bash_timeout: int
     workdir: Path
 
-    # Memory system config (CogDB + ChromaDB + Local LLM)
-    # All have defaults computed in load_config()
+    # Internal storage paths (derived from home, not user-configurable)
     cog_home: Path = Path.home() / ".obektclaw" / "cog-home"
     chroma_path: Path = Path.home() / ".obektclaw" / "chroma"
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
-    graph_name: str = "obektclaw"
-
-    # Hybrid retrieval config
-    semantic_search_limit: int = 10
-    graph_traversal_depth: int = 3
-    context_assembly_max_tokens: int = 2000
 
     # Context window - 0 = auto-detect from model name
     context_window: int = 0
-
-    # Extraction LLM config (entity/relationship extraction for Learning Loop)
-    # Falls back to main LLM config if not specified
-    extraction_llm_base_url: str | None = None  # Falls back to llm_base_url
-    extraction_llm_api_key: str | None = None  # Falls back to llm_api_key
-    extraction_llm_model: str | None = None  # Falls back to llm_fast_model or llm_model
 
 
 def _int_list(raw: str) -> tuple[int, ...]:
@@ -116,30 +101,10 @@ def load_config() -> Config:
     workdir_env = os.environ.get("OBEKTCLAW_WORKDIR", "").strip()
     workdir = Path(workdir_env).expanduser() if workdir_env else Path.cwd()
 
-    # Memory system paths
-    cog_home = Path(
-        os.environ.get("OBEKTCLAW_COG_HOME") or home / "cog-home"
-    ).expanduser()
+    cog_home = home / "cog-home"
     cog_home.mkdir(parents=True, exist_ok=True)
-
-    chroma_path = Path(
-        os.environ.get("OBEKTCLAW_CHROMA_PATH") or home / "chroma"
-    ).expanduser()
+    chroma_path = home / "chroma"
     chroma_path.mkdir(parents=True, exist_ok=True)
-
-    # Read main LLM config first (extraction LLM falls back to these)
-    llm_base_url = os.environ.get("OBEKTCLAW_LLM_BASE_URL", "https://api.openai.com/v1")
-    llm_api_key = os.environ.get("OBEKTCLAW_LLM_API_KEY", "")
-    llm_model = os.environ.get("OBEKTCLAW_LLM_MODEL", "gpt-4o-mini")
-    llm_fast_model = os.environ.get(
-        "OBEKTCLAW_LLM_FAST_MODEL",
-        llm_model,  # Fall back to main model
-    )
-
-    # Extraction LLM config (falls back to main LLM if not specified)
-    extraction_base_url = os.environ.get("OBEKTCLAW_EXTRACTION_LLM_BASE_URL")
-    extraction_api_key = os.environ.get("OBEKTCLAW_EXTRACTION_LLM_API_KEY")
-    extraction_model = os.environ.get("OBEKTCLAW_EXTRACTION_LLM_MODEL")
 
     return Config(
         home=home,
@@ -147,10 +112,13 @@ def load_config() -> Config:
         skills_dir=skills_dir,
         bundled_skills_dir=bundled,
         logs_dir=logs_dir,
-        llm_base_url=llm_base_url,
-        llm_api_key=llm_api_key,
-        llm_model=llm_model,
-        llm_fast_model=llm_fast_model,
+        llm_base_url=os.environ.get("OBEKTCLAW_LLM_BASE_URL", "https://api.openai.com/v1"),
+        llm_api_key=os.environ.get("OBEKTCLAW_LLM_API_KEY", ""),
+        llm_model=os.environ.get("OBEKTCLAW_LLM_MODEL", "gpt-4o-mini"),
+        llm_fast_model=os.environ.get(
+            "OBEKTCLAW_LLM_FAST_MODEL",
+            os.environ.get("OBEKTCLAW_LLM_MODEL", "gpt-4o-mini"),
+        ),
         tg_token=os.environ.get("OBEKTCLAW_TG_TOKEN", ""),
         tg_allowed_chat_ids=_int_list(
             os.environ.get("OBEKTCLAW_TG_ALLOWED_CHAT_IDS", "")
@@ -158,25 +126,8 @@ def load_config() -> Config:
         context_window=int(os.environ.get("OBEKTCLAW_CONTEXT_WINDOW", "0")),
         bash_timeout=int(os.environ.get("OBEKTCLAW_BASH_TIMEOUT", "30")),
         workdir=workdir,
-        # Memory system
         cog_home=cog_home,
         chroma_path=chroma_path,
-        embedding_model=os.environ.get("OBEKTCLAW_EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
-        embedding_dimension=int(os.environ.get("OBEKTCLAW_EMBEDDING_DIMENSION", "384")),
-        graph_name=os.environ.get("OBEKTCLAW_GRAPH_NAME", "obektclaw"),
-        semantic_search_limit=int(
-            os.environ.get("OBEKTCLAW_SEMANTIC_SEARCH_LIMIT", "10")
-        ),
-        graph_traversal_depth=int(
-            os.environ.get("OBEKTCLAW_GRAPH_TRAVERSAL_DEPTH", "3")
-        ),
-        context_assembly_max_tokens=int(
-            os.environ.get("OBEKTCLAW_CONTEXT_ASSEMBLY_MAX_TOKENS", "2000")
-        ),
-        # Extraction LLM (falls back to main LLM if not specified)
-        extraction_llm_base_url=extraction_base_url,
-        extraction_llm_api_key=extraction_api_key,
-        extraction_llm_model=extraction_model,
     )
 
 

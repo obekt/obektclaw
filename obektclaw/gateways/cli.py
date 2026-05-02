@@ -33,7 +33,7 @@ from rich import box, print as rprint
 
 from ..agent import Agent
 from ..config import CONFIG, load_config
-from ..logging_config import get_logger
+from ..logging_config import get_logger, setup_cli_logging
 from ..memory.store import Store
 from ..model_context import get_context_window, list_known_models, guess_context_window
 from ..skills import SkillManager
@@ -1136,6 +1136,7 @@ def _show_sessions(store: Store) -> None:
 
 
 def run() -> int:
+    setup_cli_logging()
     config = CONFIG
     if not _check_config():
         log.info("setup_wizard_start")
@@ -1165,6 +1166,7 @@ def run() -> int:
 
 def run_with_session(session_id: int, info) -> int:
     """Resume an old session in CLI mode with themed styling."""
+    setup_cli_logging()
     config = CONFIG
     if not _check_config():
         log.info("setup_wizard_start (session resume)")

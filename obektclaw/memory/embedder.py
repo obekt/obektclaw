@@ -3,10 +3,23 @@
 Provides a singleton embedder for generating vector embeddings from text.
 Uses all-MiniLM-L6-v2 model (384 dimensions, ~80MB).
 """
-
 from __future__ import annotations
 
+import os
 from typing import Optional
+
+# Suppress noisy transformers/sentence-transformers output before any import
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+# Pin cache to a persistent location inside OBEKTCLAW_HOME so the model is
+# never re-downloaded because of a missing or temp cache directory.
+from obektclaw.config import CONFIG
+
+_sentence_transformers_home = str(CONFIG.home / "models" / "sentence-transformers")
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _sentence_transformers_home)
+os.environ.setdefault("HF_HOME", str(CONFIG.home / "models" / "huggingface"))
 
 # Lazy import to avoid loading model at import time
 _model: Optional[object] = None

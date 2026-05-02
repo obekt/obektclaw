@@ -179,11 +179,7 @@ def mock_config():
         tg_allowed_chat_ids=(),
         bash_timeout=30,
         workdir=tmpdir,
-        # Memory system
         chroma_path=tmpdir / "chroma",
-        semantic_search_limit=10,
-        graph_traversal_depth=2,
-        context_assembly_max_tokens=500,
     )
 
 
@@ -214,15 +210,14 @@ def mock_vector_memory():
 @pytest.fixture
 def hybrid_retriever(mock_graph_memory, mock_vector_memory, mock_config):
     """Create a HybridRetriever with mocked dependencies."""
-    with patch("obektclaw.memory.hybrid_retriever.CONFIG", mock_config):
-        ranking = RankingAlgorithm(min_score_threshold=0.0)
-        retriever = HybridRetriever(
-            graph_memory=mock_graph_memory,
-            vector_memory=mock_vector_memory,
-            ranking=ranking,
-            user_entity_id="entity_person_user",
-        )
-        yield retriever
+    ranking = RankingAlgorithm(min_score_threshold=0.0)
+    retriever = HybridRetriever(
+        graph_memory=mock_graph_memory,
+        vector_memory=mock_vector_memory,
+        ranking=ranking,
+        user_entity_id="entity_person_user",
+    )
+    yield retriever
 
 
 # ============== Retrieval Tests ==============
@@ -866,25 +861,24 @@ class TestHybridRetrieverIntegration:
         self, mock_graph_memory, mock_vector_memory, mock_config
     ):
         """Test with custom user entity ID."""
-        with patch("obektclaw.memory.hybrid_retriever.CONFIG", mock_config):
-            ranking = RankingAlgorithm(min_score_threshold=0.0)
-            retriever = HybridRetriever(
-                graph_memory=mock_graph_memory,
-                vector_memory=mock_vector_memory,
-                ranking=ranking,
-                user_entity_id="custom_user_entity",
-            )
+        ranking = RankingAlgorithm(min_score_threshold=0.0)
+        retriever = HybridRetriever(
+            graph_memory=mock_graph_memory,
+            vector_memory=mock_vector_memory,
+            ranking=ranking,
+            user_entity_id="custom_user_entity",
+        )
 
-            mock_graph_memory.get_user_preferences.return_value = {
-                "prefers": [{"name": "custom_pref"}],
-                "dislikes": [],
-            }
+        mock_graph_memory.get_user_preferences.return_value = {
+            "prefers": [{"name": "custom_pref"}],
+            "dislikes": [],
+        }
 
-            retriever.retrieve_for_prompt("test")
-            # Should call get_user_preferences with custom ID
-            mock_graph_memory.get_user_preferences.assert_called_with(
-                "custom_user_entity"
-            )
+        retriever.retrieve_for_prompt("test")
+        # Should call get_user_preferences with custom ID
+        mock_graph_memory.get_user_preferences.assert_called_with(
+            "custom_user_entity"
+        )
 
 
 # ============== Edge Cases ==============

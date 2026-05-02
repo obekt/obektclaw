@@ -21,6 +21,10 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
+# Global flag: console output can be disabled for TUI modes (e.g. CLI REPL)
+_console_enabled = True
+
+
 def _get_home() -> Path:
     return Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
 
@@ -78,7 +82,9 @@ def _setup_file_handler(log_dir: Path) -> logging.FileHandler:
     return handler
 
 
-def _setup_console_handler() -> logging.StreamHandler:
+def _setup_console_handler() -> logging.StreamHandler | None:
+    if not _console_enabled:
+        return None
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(logging.INFO)
     # Simple colored format for console
@@ -107,7 +113,9 @@ def get_logger(name: str) -> logging.Logger:
     log_dir = home / "logs"
 
     logger.addHandler(_setup_file_handler(log_dir))
-    logger.addHandler(_setup_console_handler())
+    console_handler = _setup_console_handler()
+    if console_handler is not None:
+        logger.addHandler(console_handler)
 
     return logger
 
@@ -122,4 +130,46 @@ def setup_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     if not root.handlers:
-        root.addHandler(_setup_console_handler())
+        console_handler = _setup_console_handler()
+        if console_handler is not None:
+            root.addHandler(console_handler)
+
+
+def setup_cli_logging() -> None:
+    """Suppress console logging for interactive TUI mode.
+
+    Removes all StreamHandlers writing to stdout/stderr from the root logger
+    and every existing logger, then bumps noisy third-party loggers to
+    WARNING so they don't corrupt the prompt_toolkit / Rich display.
+    File logging continues unaffected.
+    """
+    global _console_enabled
+    _console_enabled = False
+
+    # Remove existing console handlers from root
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
+            root.removeHandler(handler)
+
+    # Remove console handlers from all existing loggers
+    for logger_name in list(logging.root.manager.loggerDict):
+        logger = logging.getLogger(logger_name)
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
+                logger.removeHandler(handler)
+
+    # Suppress noisy third-party libraries
+    for noisy in (
+        "chromadb",
+        "chromadb.telemetry",
+        "sentence_transformers",
+        "transformers",
+        "transformers.tokenization_utils",
+        "urllib3",
+        "httpx",
+        "openai",
+        "huggingface_hub",
+        "torch",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
