@@ -1,4 +1,5 @@
 """Tests for obektclaw/memory/store.py — SQLite + FTS5 storage layer."""
+
 import tempfile
 from pathlib import Path
 
@@ -45,7 +46,9 @@ class TestFtsQuery:
 
     def test_underscore_and_dash_preserved(self):
         result = _fts_query("csv-to-database my_util")
-        assert "csv-to-database*" in result
+        # Hyphenated terms must be quoted for FTS5 (unquoted causes "no such column" error)
+        # The correct format is "term"* (quoted with star outside)
+        assert '"csv-to-database"*' in result
         assert "my_util*" in result
 
 
@@ -259,7 +262,9 @@ class TestSkills:
             """,
             ("test-skill", "A test skill", "# Body here", 1000.0, 1000.0),
         )
-        row = store.fetchone("SELECT name, description FROM skills WHERE name = ?", ("test-skill",))
+        row = store.fetchone(
+            "SELECT name, description FROM skills WHERE name = ?", ("test-skill",)
+        )
         assert row is not None
         assert row["description"] == "A test skill"
 
@@ -269,7 +274,13 @@ class TestSkills:
             INSERT INTO skills (name, description, body, use_count, success_count, created_at, updated_at)
             VALUES (?, ?, ?, 0, 0, ?, ?)
             """,
-            ("csv-import", "Import CSV into SQLite", "Steps: 1. read csv", 1000.0, 1000.0),
+            (
+                "csv-import",
+                "Import CSV into SQLite",
+                "Steps: 1. read csv",
+                1000.0,
+                1000.0,
+            ),
         )
         results = store.fts_skills("csv database")
         assert len(results) >= 1
@@ -305,7 +316,7 @@ class TestStoreThreadSafety:
         session_id = store.open_session("cli", "user")
         for i in range(10):
             store.add_message(session_id, "user", f"msg {i}")
-        
+
         # Multiple reads
         recent = store.recent_messages(session_id, limit=10)
         assert len(recent) == 10

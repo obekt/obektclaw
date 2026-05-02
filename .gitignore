@@ -70,12 +70,18 @@ tmp/
 temp/
 *.tmp
 
+# Scratchpad for design documents
+scratchpad/
+
 # MCP config (may contain secrets)
 mcp.json
 mcp.local.json
 
 # Node modules (if using MCP servers with npx)
 node_modules/
+
+# Playwright MCP state directory
+.playwright-mcp/
 
 # Qwen Code local settings
 .qwen/
