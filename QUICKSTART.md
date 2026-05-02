@@ -169,6 +169,7 @@ All config via environment variables or `.env` file:
 | `OBEKTCLAW_LLM_BASE_URL` | OpenAI API | LLM endpoint |
 | `OBEKTCLAW_LLM_API_KEY` | (required) | API key |
 | `OBEKTCLAW_LLM_MODEL` | `gpt-4o-mini` | Main model |
+| `OBEKTCLAW_LLM_FAST_MODEL` | same as main | Learning Loop model |
 | `OBEKTCLAW_TG_TOKEN` | (empty) | Telegram bot token |
 
 ## Need Help?
@@ -192,4 +193,4 @@ Run the test suite:
 python -m pytest
 ```
 
-All 326 tests should pass.
+All 602 tests should pass.

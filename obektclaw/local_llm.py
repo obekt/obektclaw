@@ -72,9 +72,8 @@ class LLMResponse:
 
 def _get_model_path() -> Path:
     """Get the path where the model should be stored."""
-    from obektclaw.config import CONFIG
-
-    model_dir = CONFIG.local_model_cache / "models"
+    home = Path(os.environ.get("OBEKTCLAW_HOME") or Path.home() / ".obektclaw").expanduser()
+    model_dir = home / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
     return model_dir / MODEL_FILENAME
 
@@ -159,8 +158,8 @@ def _get_llm():
             model_path=str(model_path),
             n_ctx=4096,  # Context window for tool calling
             n_batch=512,  # Batch size for prompt processing
-            n_threads=CONFIG.local_llm_threads,
-            n_threads_batch=CONFIG.local_llm_threads,
+            n_threads=4,
+            n_threads_batch=4,
             verbose=False,  # Suppress llama.cpp output
         )
 
@@ -183,8 +182,8 @@ def _get_llm():
         model_path=str(model_path),
         n_ctx=4096,  # Context window for tool calling
         n_batch=512,  # Batch size for prompt processing
-        n_threads=CONFIG.local_llm_threads,
-        n_threads_batch=CONFIG.local_llm_threads,
+        n_threads=4,
+        n_threads_batch=4,
         verbose=False,  # Suppress llama.cpp output
     )
 

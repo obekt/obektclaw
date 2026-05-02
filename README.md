@@ -172,7 +172,9 @@ All via environment variables or `.env` file:
 | `OBEKTCLAW_CONTEXT_WINDOW` | auto | Context window size (e.g. `200000` for Claude) |
 | `OBEKTCLAW_TG_TOKEN` | (empty) | Telegram bot token |
 
-See `.env.example` for full configuration.
+That's it. No separate extraction LLM config, no embedding model tuning, no graph database knobs. The agent just works.
+
+See `.env.example` for the full template.
 
 ## Testing
 
@@ -181,7 +183,7 @@ pip install -r requirements.txt  # includes pytest
 python -m pytest
 ```
 
-333 tests covering storage, skills, agent loop, learning loop, sessions, and gateways. All offline (fake LLM).
+602 tests covering storage, skills, agent loop, learning loop, sessions, and gateways. All offline (fake LLM).
 
 ## Security Model
 
@@ -197,14 +199,14 @@ obektclaw/
 ├── obektclaw/              # Core package
 │   ├── agent.py         # ReAct loop + session resume
 │   ├── sessions.py      # Session management, export, resume
-│   ├── learning.py      # Learning Loop
+│   ├── post_turn.py     # Learning Loop (extraction + memory)
 │   ├── memory/          # 3-layer memory
 │   ├── skills/          # Markdown skill system
 │   ├── tools/           # 16 built-in tools
 │   ├── mcp.py           # MCP bridge
 │   └── gateways/        # CLI + Telegram
 ├── bundled_skills/      # Starter skills
-├── tests/               # 333 tests
+├── tests/               # 602 tests
 ├── docs/                # Architecture + novelty docs
 ├── QUICKSTART.md        # Getting started
 └── README.md            # This file
@@ -231,7 +233,7 @@ MIT — see LICENSE file.
 - [x] Session management (list, show, export, resume)
 - [x] Context compaction at 85% pressure
 - [x] Memory cleanup (auto-expiry + contradiction detection)
-- [ ] Embeddings-based recall (optional, degrades to FTS5)
+- [x] Embeddings-based recall (ChromaDB + sentence-transformers)
 - [ ] Multi-agent orchestration (parallel delegate)
 - [ ] HTTP MCP transport
 - [ ] Sandboxed tool execution (opt-in)

@@ -400,7 +400,7 @@ Configuration:
 
                 # Graph memory stats
                 try:
-                    graph = GraphMemory(CONFIG.cog_home / CONFIG.graph_name)
+                    graph = GraphMemory(CONFIG.cog_home / "obektclaw")
                     entity_count = 0
                     for entity_type in ENTITY_TYPES:
                         entities = graph.get_entities_by_type(entity_type)

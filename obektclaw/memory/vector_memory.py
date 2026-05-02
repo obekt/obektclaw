@@ -12,8 +12,7 @@ from typing import Optional
 import chromadb
 from chromadb.config import Settings
 
-from obektclaw.config import CONFIG
-from obektclaw.memory.embedder import embed, embed_batch
+from obektclaw.memory.embedder import embed, embed_batch, get_embedding_dimension
 
 
 class VectorMemory:
@@ -488,8 +487,8 @@ class VectorMemory:
             "memories_count": self.memories.count(),
             "skills_count": self.skills.count(),
             "entities_count": self.entities.count(),
-            "embedding_model": CONFIG.embedding_model,
-            "embedding_dimension": CONFIG.embedding_dimension,
+            "embedding_model": "all-MiniLM-L6-v2",
+            "embedding_dimension": get_embedding_dimension(),
         }
 
     def clear_all(self) -> None:

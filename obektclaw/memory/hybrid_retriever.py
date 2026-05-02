@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from obektclaw.config import CONFIG
+
 from obektclaw.memory.graph_memory import GraphMemory
 from obektclaw.memory.vector_memory import VectorMemory
 from obektclaw.memory.ranking import RankingAlgorithm
@@ -139,15 +139,15 @@ class HybridRetriever:
 
         Args:
             query: Current user message (used for semantic search)
-            max_tokens: Token budget (default from CONFIG, 0 means no budget)
+            max_tokens: Token budget (default 2000, 0 means no budget)
 
         Returns:
             RetrievedContext with ranked, selected items
         """
         # Use provided max_tokens, default only if None (not if 0)
         if max_tokens is None:
-            max_tokens = CONFIG.context_assembly_max_tokens
-        search_limit = CONFIG.semantic_search_limit
+            max_tokens = 2000
+        search_limit = 10
 
         # 1. Vector search for facts
         facts = self.vector.search_similar_facts(
@@ -163,7 +163,7 @@ class HybridRetriever:
 
         # 3. Graph traversal for entities connected to retrieved facts
         entities = self._get_connected_entities(
-            facts, max_depth=CONFIG.graph_traversal_depth
+            facts, max_depth=3
         )
 
         # 4. Get user preferences from graph (always included if present)

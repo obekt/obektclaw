@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass
 
 from .config import Config
-from .llm import LLMClient, LLMResponse, TokenUsage, ExtractionLLMClient
+from .llm import LLMClient, LLMResponse, TokenUsage
 from .logging_config import get_logger
 from .memory import SessionMemory, UserModel
 from .memory.graph_memory import GraphMemory
@@ -99,8 +99,6 @@ class Agent:
             model=config.llm_model,
             fast_model=config.llm_fast_model,
         )
-        # Extraction LLM for Learning Loop (separate context, uses extraction config with fallback)
-        self.extraction_llm = ExtractionLLMClient(config)
         self.gateway = gateway
         self.user_key = user_key
         self.run_learning_loop_flag = run_learning_loop
@@ -117,7 +115,7 @@ class Agent:
         self.user_model = UserModel(store)
 
         # Initialize automatic memory system (CogDB + ChromaDB + HybridRetriever)
-        self.graph_memory = GraphMemory(config.cog_home / config.graph_name)
+        self.graph_memory = GraphMemory(config.cog_home / "obektclaw")
         self.vector_memory = VectorMemory(chroma_path=config.chroma_path)
         self.memory_sync = MemorySync(self.graph_memory, self.vector_memory)
         self.hybrid_retriever = HybridRetriever(
@@ -232,7 +230,7 @@ class Agent:
                 if compact_result["compacted"]:
                     log.info(
                         "context_compacted turns=%d summary_words=%d tokens_saved=%d",
-                        len(to_compact),
+                        compact_result.get("turns_compacted", 0),
                         compact_result["summary_length"],
                         compact_result["tokens_saved"],
                     )
@@ -249,7 +247,7 @@ class Agent:
                 elif self._context_pressure() > 0.75:
                     # Compaction failed or didn't happen, fall back to truncation
                     messages = self._truncate_messages(messages)
-                    log.warning("context_truncated pressure=%.2f", pressure)
+                    log.warning("context_truncated pressure=%.2f", self._context_pressure())
 
             try:
                 resp: LLMResponse = self.llm.chat(
@@ -362,7 +360,6 @@ class Agent:
         try:
             self.graph_memory.close()
             self.vector_memory.close()
-            self.extraction_llm.close()
         except Exception:
             pass
         # Shut down MCP servers if any were loaded
@@ -579,6 +576,7 @@ class Agent:
                 "reason": "Success",
                 "summary_length": len(summary.split()),
                 "tokens_saved": int(old_tokens - len(summary.split())),
+                "turns_compacted": len(to_compact),
                 "error": None,
             }
 
@@ -675,7 +673,7 @@ class Agent:
         # Get relevant context from graph/vector stores
         retrieved_context = self.hybrid_retriever.retrieve_for_prompt(
             query=user_text,
-            max_tokens=self.config.context_assembly_max_tokens,
+            max_tokens=2000,
         )
         context_text = retrieved_context.to_prompt_text()
         if context_text.strip():

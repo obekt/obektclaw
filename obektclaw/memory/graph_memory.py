@@ -14,7 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from cog.torque import Graph
+try:
+    from cog.torque import Graph
+    _COG_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _COG_AVAILABLE = False
+    Graph = None  # type: ignore[misc,assignment]
 
 
 # Entity types supported by the knowledge graph
@@ -123,7 +128,14 @@ class GraphMemory:
 
         Args:
             db_path: Path to the CogDB database directory.
+
+        Raises:
+            RuntimeError: If CogDB is not installed.
         """
+        if not _COG_AVAILABLE:
+            raise RuntimeError(
+                "CogDB is not installed. Install it with: pip install cogdb"
+            )
         self.db_path = db_path
         db_path.mkdir(parents=True, exist_ok=True)
         # Use the Torque Graph API

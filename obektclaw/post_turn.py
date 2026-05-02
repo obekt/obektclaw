@@ -1,7 +1,7 @@
 """Post-turn extraction for memory persistence.
 
-Runs after every assistant turn. Uses the ExtractionLLMClient (separate context
-from main agent) for structured entity/fact extraction.
+Runs after every assistant turn. Uses the main LLM client with fast=True
+for structured entity/fact extraction.
 
 Steps:
   1. Curate memory     — extract entities, relations, and facts
@@ -151,17 +151,11 @@ class TurnExtractor:
             f"## Existing user model\n{snapshot}\n"
         )
 
-        # Use ExtractionLLMClient for structured extraction (isolated context)
-        log.info(
-            "turn_extraction_using_llm model=%s",
-            self.agent.extraction_llm.model,
-        )
-        result = self.agent.extraction_llm.extract(EXTRACTION_PROMPT, user_msg)
+        # Use main LLM with fast=True for structured extraction
+        result = self.agent.llm.chat_json(EXTRACTION_PROMPT, user_msg, fast=True)
 
         if not result:
-            log.warning(
-                "turn_extraction_failed model=%s", self.agent.extraction_llm.model
-            )
+            log.warning("turn_extraction_failed")
             return
 
         log.info(
