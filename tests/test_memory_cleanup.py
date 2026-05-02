@@ -1,4 +1,8 @@
-"""Tests for the memory cleanup CLI command."""
+"""Tests for the memory cleanup CLI command.
+
+Updated for VectorMemory-based cleanup.
+"""
+
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -8,15 +12,15 @@ import pytest
 
 from obektclaw.config import Config
 from obektclaw.memory.store import Store
-from obektclaw.memory import PersistentMemory
+from obektclaw.memory import VectorMemory
 from obektclaw.__main__ import main
 
 
 class FakeCleanupLLM:
     """Fake LLM that returns specific cleanup responses."""
 
-    def __init__(self, keys_to_delete: Optional[list[str]] = None):
-        self.keys_to_delete = keys_to_delete or []
+    def __init__(self, ids_to_delete: Optional[list[str]] = None):
+        self.ids_to_delete = ids_to_delete or []
         self.call_count = 0
 
     def chat(
@@ -30,6 +34,7 @@ class FakeCleanupLLM:
     ):
         self.call_count += 1
         from obektclaw.llm import LLMResponse
+
         return LLMResponse(content="OK", tool_calls=[], raw=None)
 
     def chat_simple(self, system: str, user: str, *, fast=True, temperature=0.3) -> str:
@@ -39,12 +44,12 @@ class FakeCleanupLLM:
         self, system: str, user: str, *, fast=True
     ) -> Optional[Dict[str, Any]]:
         self.call_count += 1
-        return self.keys_to_delete
+        return self.ids_to_delete
 
 
 @pytest.fixture
 def cleanup_env():
-    """Create a test environment with some stale facts."""
+    """Create a test environment with some facts in VectorMemory."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         db_path = tmp / "test.db"
@@ -57,15 +62,9 @@ def cleanup_env():
         logs_dir.mkdir()
 
         store = Store(db_path)
-        pm = PersistentMemory(store)
-
-        # Create some facts: some good, some ephemeral
-        pm.upsert("preferred_http_client", "httpx", category="preference")  # Good
-        pm.upsert("server_provider", "Hetzner CX22", category="env")  # Good
-        pm.upsert("csv_file_path", "/tmp/x.csv", category="general")  # Ephemeral
-        pm.upsert("file_count", "7 files in directory", category="general")  # Ephemeral
-
-        yield tmp, db_path, store, pm
+        # VectorMemory uses CONFIG.chroma_path internally - we need to patch CONFIG
+        # For this fixture, we just return the store and create mock VectorMemory later
+        yield tmp, db_path, store
         store.close()
 
 
@@ -73,12 +72,13 @@ class TestMemoryCleanup:
     """Test the memory cleanup command."""
 
     @patch("obektclaw.__main__.CONFIG")
+    @patch("obektclaw.memory.VectorMemory")
     @patch("obektclaw.llm.LLMClient")
     def test_cleanup_deletes_ephemeral_facts(
-        self, mock_llm_cls, mock_config, cleanup_env
+        self, mock_llm_cls, mock_vm_cls, mock_config, cleanup_env
     ):
         """Cleanup should delete ephemeral facts identified by LLM."""
-        tmp, db_path, store, pm = cleanup_env
+        tmp, db_path, store = cleanup_env
 
         # Setup mock config
         mock_config.home = tmp
@@ -90,8 +90,24 @@ class TestMemoryCleanup:
         mock_config.llm_model = "fake"
         mock_config.llm_fast_model = "fake"
 
-        # Setup fake LLM to identify ephemeral facts
-        fake_llm = FakeCleanupLLM(keys_to_delete=["csv_file_path", "file_count"])
+        # Mock VectorMemory to return facts
+        mock_vm_instance = MagicMock()
+        mock_vm_cls.return_value = mock_vm_instance
+        mock_vm_instance.get_recent_facts.return_value = [
+            {"id": "fact_good_001", "content": "preferred HTTP client is httpx"},
+            {"id": "fact_good_002", "content": "server hosted on Hetzner CX22"},
+            {"id": "fact_ephemeral_001", "content": "csv_file_path: /tmp/x.csv"},
+            {"id": "fact_ephemeral_002", "content": "file_count: 7 files"},
+        ]
+
+        # Track deleted facts
+        deleted_ids = []
+        mock_vm_instance.delete_fact.side_effect = lambda fid: deleted_ids.append(fid)
+
+        # Setup fake LLM to identify ephemeral facts by ID
+        fake_llm = FakeCleanupLLM(
+            ids_to_delete=["fact_ephemeral_001", "fact_ephemeral_002"]
+        )
         mock_llm_cls.return_value = fake_llm
 
         # Run cleanup command
@@ -99,24 +115,21 @@ class TestMemoryCleanup:
 
         assert result == 0
 
-        # Verify ephemeral facts deleted, good facts kept
-        all_facts = []
-        for cat in ("user", "project", "env", "preference", "general"):
-            all_facts.extend(pm.list_category(cat, limit=200))
-
-        fact_keys = {f.key for f in all_facts}
-        assert "preferred_http_client" in fact_keys  # Good fact kept
-        assert "server_provider" in fact_keys  # Good fact kept
-        assert "csv_file_path" not in fact_keys  # Ephemeral deleted
-        assert "file_count" not in fact_keys  # Ephemeral deleted
+        # Verify ephemeral facts were marked for deletion
+        assert "fact_ephemeral_001" in deleted_ids
+        assert "fact_ephemeral_002" in deleted_ids
+        # Good facts should NOT be deleted
+        assert "fact_good_001" not in deleted_ids
+        assert "fact_good_002" not in deleted_ids
 
     @patch("obektclaw.__main__.CONFIG")
+    @patch("obektclaw.memory.VectorMemory")
     @patch("obektclaw.llm.LLMClient")
     def test_cleanup_no_facts_to_delete(
-        self, mock_llm_cls, mock_config, cleanup_env, capsys
+        self, mock_llm_cls, mock_vm_cls, mock_config, cleanup_env, capsys
     ):
         """Cleanup should report when no facts need deletion."""
-        tmp, db_path, store, pm = cleanup_env
+        tmp, db_path, store = cleanup_env
 
         mock_config.home = tmp
         mock_config.db_path = db_path
@@ -127,8 +140,14 @@ class TestMemoryCleanup:
         mock_config.llm_model = "fake"
         mock_config.llm_fast_model = "fake"
 
+        mock_vm_instance = MagicMock()
+        mock_vm_cls.return_value = mock_vm_instance
+        mock_vm_instance.get_recent_facts.return_value = [
+            {"id": "fact_001", "content": "test"},
+        ]
+
         # LLM returns empty list (nothing to delete)
-        fake_llm = FakeCleanupLLM(keys_to_delete=[])
+        fake_llm = FakeCleanupLLM(ids_to_delete=[])
         mock_llm_cls.return_value = fake_llm
 
         result = main(["memory", "cleanup"])
@@ -138,10 +157,8 @@ class TestMemoryCleanup:
         assert "No facts identified for deletion" in out
 
     @patch("obektclaw.__main__.CONFIG")
-    @patch("obektclaw.llm.LLMClient")
-    def test_cleanup_empty_database(
-        self, mock_llm_cls, mock_config, capsys
-    ):
+    @patch("obektclaw.memory.VectorMemory")
+    def test_cleanup_empty_database(self, mock_vm_cls, mock_config, capsys):
         """Cleanup should handle empty database gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -163,6 +180,10 @@ class TestMemoryCleanup:
             mock_config.llm_model = "fake"
             mock_config.llm_fast_model = "fake"
 
+            mock_vm_instance = MagicMock()
+            mock_vm_cls.return_value = mock_vm_instance
+            mock_vm_instance.get_recent_facts.return_value = []
+
             result = main(["memory", "cleanup"])
             assert result == 0
 
@@ -170,12 +191,13 @@ class TestMemoryCleanup:
             assert "(no facts to clean up)" in out
 
     @patch("obektclaw.__main__.CONFIG")
+    @patch("obektclaw.memory.VectorMemory")
     @patch("obektclaw.llm.LLMClient")
     def test_cleanup_llm_returns_none(
-        self, mock_llm_cls, mock_config, cleanup_env, capsys
+        self, mock_llm_cls, mock_vm_cls, mock_config, cleanup_env, capsys
     ):
         """Cleanup should handle LLM returning None."""
-        tmp, db_path, store, pm = cleanup_env
+        tmp, db_path, store = cleanup_env
 
         mock_config.home = tmp
         mock_config.db_path = db_path
@@ -186,9 +208,15 @@ class TestMemoryCleanup:
         mock_config.llm_model = "fake"
         mock_config.llm_fast_model = "fake"
 
+        mock_vm_instance = MagicMock()
+        mock_vm_cls.return_value = mock_vm_instance
+        mock_vm_instance.get_recent_facts.return_value = [
+            {"id": "fact_001", "content": "test"},
+        ]
+
         # LLM returns None (malformed response)
-        fake_llm = FakeCleanupLLM(keys_to_delete=None)
-        fake_llm.keys_to_delete = None  # Override to return None
+        fake_llm = FakeCleanupLLM(ids_to_delete=None)
+        fake_llm.ids_to_delete = None  # Override to return None
         mock_llm_cls.return_value = fake_llm
 
         result = main(["memory", "cleanup"])
@@ -198,12 +226,13 @@ class TestMemoryCleanup:
         assert "LLM did not return a list" in out
 
     @patch("obektclaw.__main__.CONFIG")
+    @patch("obektclaw.memory.VectorMemory")
     @patch("obektclaw.llm.LLMClient")
     def test_cleanup_llm_returns_non_list(
-        self, mock_llm_cls, mock_config, cleanup_env, capsys
+        self, mock_llm_cls, mock_vm_cls, mock_config, cleanup_env, capsys
     ):
         """Cleanup should handle LLM returning non-list JSON."""
-        tmp, db_path, store, pm = cleanup_env
+        tmp, db_path, store = cleanup_env
 
         mock_config.home = tmp
         mock_config.db_path = db_path
@@ -213,6 +242,49 @@ class TestMemoryCleanup:
         mock_config.llm_api_key = "fake"
         mock_config.llm_model = "fake"
         mock_config.llm_fast_model = "fake"
+
+        mock_vm_instance = MagicMock()
+        mock_vm_cls.return_value = mock_vm_instance
+        mock_vm_instance.get_recent_facts.return_value = [
+            {"id": "fact_001", "content": "test"},
+        ]
+
+        # LLM returns a dict instead of list
+        class DictLLM(FakeCleanupLLM):
+            def chat_json(self, system, user, *, fast=True):
+                return {"error": "wrong format"}
+
+        mock_llm_cls.return_value = DictLLM()
+
+        result = main(["memory", "cleanup"])
+        assert result == 1
+
+        out, err = capsys.readouterr()
+        assert "LLM did not return a list" in out
+
+    @patch("obektclaw.__main__.CONFIG")
+    @patch("obektclaw.memory.VectorMemory")
+    @patch("obektclaw.llm.LLMClient")
+    def test_cleanup_llm_returns_non_list(
+        self, mock_llm_cls, mock_vm_cls, mock_config, cleanup_env, capsys
+    ):
+        """Cleanup should handle LLM returning non-list JSON."""
+        tmp, db_path, store = cleanup_env
+
+        mock_config.home = tmp
+        mock_config.db_path = db_path
+        mock_config.skills_dir = tmp / "skills"
+        mock_config.bundled_skills_dir = tmp / "bundled"
+        mock_config.llm_base_url = "http://fake"
+        mock_config.llm_api_key = "fake"
+        mock_config.llm_model = "fake"
+        mock_config.llm_fast_model = "fake"
+
+        mock_vm_instance = MagicMock()
+        mock_vm_cls.return_value = mock_vm_instance
+        mock_vm_instance.get_recent_facts.return_value = [
+            {"id": "fact_001", "content": "test"},
+        ]
 
         # LLM returns a dict instead of list
         class DictLLM(FakeCleanupLLM):
@@ -255,9 +327,6 @@ class TestMemoryStatus:
             session_id = store.open_session("test", "test_user")
             store.add_message(session_id, "user", "Hello")
             store.add_message(session_id, "assistant", "Hi")
-            from obektclaw.memory import PersistentMemory
-            pm = PersistentMemory(store)
-            pm.upsert("test_fact", "test value", category="general")
             store.close()
 
             result = main(["memory", "status"])
@@ -265,6 +334,5 @@ class TestMemoryStatus:
 
             out, err = capsys.readouterr()
             assert "Sessions:" in out
-            assert "Facts:" in out
             assert "Messages:" in out
             assert "FTS5" in out

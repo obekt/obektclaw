@@ -1,4 +1,5 @@
 """SQLite + FTS5 backed storage. Single-process, file-local, no external deps."""
+
 from __future__ import annotations
 
 import json
@@ -131,12 +132,33 @@ END;
 
 
 def _fts_query(q: str) -> str:
-    """Sanitize a free-text query for the FTS5 MATCH operator."""
+    """Sanitize a free-text query for the FTS5 MATCH operator.
+
+    FTS5 special characters:
+    - Hyphens can be interpreted as column specifiers (e.g., "csv-to-database" -> column "csv" for "to-database")
+    - To search for literal hyphenated terms, quote them: "csv-to-database"
+    - Other special chars like : and ^ are also problematic
+
+    Strategy:
+    - Quote any token containing hyphens for literal search
+    - Remove other problematic characters from unquoted tokens
+    - Append * for prefix matching
+    - Return empty match string if no valid tokens
+    """
     cleaned = []
     for tok in q.replace('"', " ").split():
-        tok = "".join(ch for ch in tok if ch.isalnum() or ch in "_-")
-        if tok:
-            cleaned.append(tok + "*")
+        # Check if token has hyphen - quote it for literal search
+        if "-" in tok:
+            # Quote the entire hyphenated term with * outside quotes
+            # This is the correct FTS5 format for hyphenated literal searches
+            # e.g., "csv-to-database" becomes "csv-to-database"*
+            cleaned.append(f'"{tok}"*')
+        else:
+            # Keep alphanumeric and underscore, append * for prefix matching
+            tok = "".join(ch for ch in tok if ch.isalnum() or ch == "_")
+            if tok:
+                cleaned.append(tok + "*")
+    # Return quoted empty string for empty queries (valid FTS5 syntax)
     return " OR ".join(cleaned) if cleaned else '""'
 
 
@@ -146,7 +168,9 @@ class Store:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
+        self._conn = sqlite3.connect(
+            str(db_path), check_same_thread=False, isolation_level=None
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")

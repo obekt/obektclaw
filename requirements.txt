@@ -6,3 +6,9 @@ prompt_toolkit>=3.0.0
 rich>=13.0.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+
+# Memory system dependencies
+chromadb>=0.4.0
+cogdb>=0.1.0
+sentence-transformers>=2.2.0
+llama-cpp-python>=0.2.0  # For local CPU-only LLM extraction

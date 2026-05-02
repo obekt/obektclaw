@@ -1,6 +1,9 @@
 """Tool registry. Each tool exposes a JSON schema (for the LLM) and a Python
 callable. Tool functions receive a ToolContext for access to memory/skills/etc.
+
+Note: Memory is now automatic - no manual memory tools are exposed to the agent.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +13,7 @@ from typing import Any, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..config import Config
-    from ..memory import PersistentMemory, SessionMemory, UserModel
+    from ..memory import SessionMemory, UserModel
     from ..skills import SkillManager
     from ..llm import LLMClient
 
@@ -23,7 +26,6 @@ log = get_logger(__name__)
 class ToolContext:
     config: "Config"
     session: "SessionMemory"
-    persistent: "PersistentMemory"
     user_model: "UserModel"
     skills: "SkillManager"
     llm: "LLMClient"
@@ -99,14 +101,17 @@ class ToolRegistry:
 
 
 def build_default_registry() -> ToolRegistry:
-    """Assemble all built-in tools into a single registry."""
-    from . import fs, execution as execmod, web, memory_tools, skill_tools, delegate
+    """Assemble all built-in tools into a single registry.
+
+    Note: Memory tools are NOT included - memory is automatic now.
+    """
+    from . import fs, execution as execmod, web, skill_tools, delegate
 
     reg = ToolRegistry()
     fs.register(reg)
     execmod.register(reg)
     web.register(reg)
-    memory_tools.register(reg)
+    # NOTE: memory_tools removed - memory is automatic
     skill_tools.register(reg)
     delegate.register(reg)
     log.info("tools_registered count=%d", len(reg.all()))
