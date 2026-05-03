@@ -128,6 +128,7 @@ def e2e_config(e2e_home: Path) -> Config:
     )
 
 
+@pytest.mark.e2e
 class TestE2EMemoryPersistence:
     """End-to-end tests for memory persistence with external LLM."""
 
@@ -367,6 +368,7 @@ class TestE2EMemoryPersistence:
         agent2.close()
 
 
+@pytest.mark.e2e
 class TestE2EMemoryTools:
     """E2E tests that use memory tools directly."""
 
