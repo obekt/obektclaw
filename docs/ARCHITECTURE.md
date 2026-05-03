@@ -29,21 +29,32 @@ obektclaw is a minimal, self-improving AI agent implementation based on the [Nou
                             │
         ┌───────────────────┼───────────────────┐
         ▼                   ▼                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Memory Layer                           │
+│  ┌────────┐  ┌────────┐  ┌────────┐  ┌──────────────────┐  │
+│  │Session │  │ Vector │  │ Graph  │  │   Hybrid         │  │
+│  │SQLite  │  │ChromaDB│  │ CogDB  │  │   Retriever      │  │
+│  │+ FTS5  │  │+Embed  │  │+Triple │  │   (Ranking)      │  │
+│  └────────┘  └────────┘  └────────┘  └──────────────────┘  │
+│       │            │            │                │          │
+│       └────────────┴────────────┘                │          │
+│                    │                             │          │
+│              MemorySync                          │          │
+│         (CogDB ↔ ChromaDB)                       │          │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
 ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│    Memory    │   │    Skills    │   │    Tools     │
+│    Skills    │   │    Tools     │   │   User Model │
 │  ┌────────┐  │   │  ┌────────┐  │   │  ┌────────┐  │
-│  │Session │  │   │  │Markdown│  │   │  │  FS    │  │
-│  │(Layer1)│  │   │  │ files  │  │   │  │  Exec  │  │
-│  └────────┘  │   │  └────────┘  │   │  │  Web   │  │
-│  ┌────────┐  │   │              │   │  │  Memory│  │
-│  │Persist │  │   │  • FTS5     │   │  │  Skill │  │
-│  │(Layer2)│  │   │  • Create   │   │  │  Delegate│ │
-│  └────────┘  │   │  • Improve  │   │  └────────┘  │
-│  ┌────────┐  │   │              │   │              │
-│  │  User  │  │   │              │   │              │
-│  │ Model  │  │   │              │   │              │
-│  │(Layer3)│  │   │              │   │              │
-│  └────────┘  │   │              │   │              │
+│  │Markdown│  │   │  │  FS    │  │   │  │ 12 Lay │  │
+│  │ files  │  │   │  │  Exec  │  │   │  │ SQLite │  │
+│  └────────┘  │   │  │  Web   │  │   │  └────────┘  │
+│              │   │  │  Memory│  │   │              │
+│  • FTS5     │   │  │  Skill │  │   │              │
+│  • Vector   │   │  │Delegate│  │   │              │
+│  • Create   │   │  └────────┘  │   │              │
+│  • Improve  │   │              │   │              │
 └──────────────┘   └──────────────┘   └──────────────┘
                             │
                             ▼
@@ -84,41 +95,65 @@ obektclaw is a minimal, self-improving AI agent implementation based on the [Nou
 - **Single connection per session:** Each chat gets its own Agent instance
 - **Max steps limit:** Prevents infinite tool loops (default: 12)
 
-### 2. Three-Layer Memory (`obektclaw/memory/`)
+### 2. Automatic Memory System (`obektclaw/memory/`)
 
-#### Layer 1: Session Memory (`session.py`)
+Memory is **fully automatic** — the agent never calls memory tools. Context is injected transparently during system prompt assembly.
+
+#### Session Memory (`session.py`)
 - **Purpose:** Episodic record of current conversation
 - **Storage:** SQLite `messages` table + FTS5 index
 - **Access:** `recent(limit)` for prompt building, `search_history(query)` for recall
 - **Lifetime:** Tied to session; persists across restarts
 
-#### Layer 2: Persistent Memory (`persistent.py`)
-- **Purpose:** Semantic facts about user, project, environment
-- **Storage:** SQLite `facts` table with FTS5
-- **Categories:** `user`, `project`, `env`, `preference`, `general`
-- **Access:** FTS5 search at prompt-build time
-- **Lifetime:** Indefinite; user must explicitly delete
+#### Vector Memory (`vector_memory.py`)
+- **Purpose:** Semantic search across facts, conversations, skills, entities
+- **Storage:** ChromaDB with local embeddings (`all-MiniLM-L6-v2`, 384-dim, ~80MB)
+- **Collections:** `facts`, `memories`, `skills`, `entities`
+- **Access:** Similarity search with metadata filtering
+- **Lifetime:** Indefinite
 
-#### Layer 3: User Model (`user_model.py`)
+#### Graph Memory (`graph_memory.py`)
+- **Purpose:** Entity and relationship storage as a knowledge graph
+- **Storage:** CogDB triple-store (`cog.torque.Graph`)
+- **Entities:** tool, concept, environment, project, person, workflow
+- **Relations:** prefers, uses, dislikes, depends_on, related_to, owns, works_on, deployed_on
+- **Access:** Graph traversal, BFS for connected entities
+- **Lifetime:** Indefinite
+
+#### Hybrid Retriever (`hybrid_retriever.py`)
+- **Purpose:** Automatic context assembly for system prompt injection
+- **Workflow:**
+  1. Vector search for facts and skills (ChromaDB)
+  2. Graph traversal for entities connected to retrieved facts (CogDB)
+  3. Graph query for user preferences/dislikes
+  4. Multi-factor ranking (`ranking.py`)
+  5. Select top items within 2000-token budget
+- **Agent awareness:** Zero — agent never calls this directly
+
+#### Memory Sync (`memory_sync.py`)
+- **Purpose:** Keep entity IDs consistent across CogDB and ChromaDB
+- **Syncs:** Entities from graph → vector store; links facts to entities
+
+#### Ranking Algorithm (`ranking.py`)
+- **Purpose:** Score retrieved items by multiple factors
+- **Factors (100 points max):**
+  1. Semantic similarity — 0-40 points
+  2. Confidence score — 0-20 points
+  3. Recency boost — 0-15 points
+  4. Entity connection strength — 0-15 points
+  5. Category priority — 0-10 points
+- **Selection:** Greedy with diversity penalty to avoid same-source overload
+
+#### User Model (`user_model.py`)
 - **Purpose:** 12-layer identity profile (inspired by Honcho)
-- **Layers:**
-  1. `technical_level` — Expertise by domain
-  2. `primary_goals` — Current objectives
-  3. `work_rhythm` — Active hours/patterns
-  4. `comm_style` — Verbosity/tone preferences
-  5. `code_style` — Coding conventions
-  6. `tooling_pref` — Library/tool choices
-  7. `domain_focus` — Recurring fields
-  8. `emotional_pattern` — Reactions to friction
-  9. `trust_boundary` — Autonomy preferences
-  10. `contradictions` — Stated vs revealed gaps
-  11. `knowledge_gaps` — Repeated misunderstandings
-  12. `long_term_themes` — Multi-week projects
+- **Layers:** technical_level, primary_goals, work_rhythm, comm_style, code_style, tooling_pref, domain_focus, emotional_pattern, trust_boundary, contradictions, knowledge_gaps, long_term_themes
+- **Storage:** SQLite `user_traits` table (12 rows max)
 
 **Design decisions:**
-- **Only 12 rows:** Forces abstraction; no fact dumping
-- **Inferred, not stated:** Learning Loop determines layers from behavior
-- **FTS5 across all layers:** Recall by semantic similarity
+- **No agent awareness:** Memory retrieval is transparent; agent never calls memory tools
+- **Local embeddings:** `sentence-transformers` with persistent cache; no API calls
+- **Graph + vector together:** Graph gives relationships; vector gives semantic similarity
+- **Fire-and-forget extraction:** `post_turn.py` runs after every turn, catches all exceptions
 
 ### 3. Skill System (`obektclaw/skills/`)
 
@@ -174,7 +209,7 @@ def tool_fn(args: dict, ctx: ToolContext) -> ToolResult:
 - **ToolContext:** Single object carries all dependencies
 - **Error handling:** Tool crashes return error text, don't break loop
 
-### 5. Learning Loop (`obektclaw/learning.py`)
+### 5. Learning Loop / Turn Extraction (`obektclaw/post_turn.py`)
 
 **Purpose:** Post-turn retrospection that makes the agent self-improving.
 
@@ -259,7 +294,8 @@ User input
 ┌───────────────────────────────┐
 │ 2. Build system prompt        │
 │    • User model (12 layers)   │
-│    • Top facts (per category) │
+│    • HybridRetriever context  │
+│      (vector + graph + rank)  │
 │    • All skills (capped @ 30) │
 │    • Relevant skills (FTS5)   │
 │    • Relevant history (FTS5)  │
@@ -283,9 +319,11 @@ User input
     │
     ▼
 ┌───────────────────────────────┐
-│ 5. Learning Loop              │
-│    • Retro JSON               │
-│    • Update memories          │
+│ 5. Turn Extraction            │
+│    • Extract entities         │
+│    • Extract relations        │
+│    • Extract facts            │
+│    • Update user model        │
 │    • Create/improve skills    │
 │    • Log to JSONL             │
 └───────────────────────────────┘
@@ -301,16 +339,20 @@ Assistant reply to user
 ├── obektclaw.db          # SQLite (WAL mode)
 │   ├── sessions       # Conversation sessions
 │   ├── messages       # + FTS5 index
-│   ├── facts          # Persistent facts
+│   ├── facts          # Persistent facts (legacy mirror)
 │   ├── facts_fts      # FTS5 index
 │   ├── user_traits    # 12-layer model
 │   └── skills         # Metadata mirror
+├── chroma/            # ChromaDB vector store
+├── cog-home/          # CogDB graph store
+├── models/            # Cached embedding model (~80MB)
+│   └── sentence-transformers/
 ├── skills/            # Markdown files (source of truth)
 │   ├── csv-to-database.md
 │   ├── deployment-checklist.md
 │   └── getting-to-know-you.md
-├── logs/              # Learning Loop logs
-│   └── learning-2026-04-09.jsonl
+├── logs/              # Extraction JSONL logs
+│   └── extraction-2026-04-09.jsonl
 └── mcp.json           # Optional MCP config
 ```
 
@@ -342,6 +384,8 @@ All via environment variables or `.env`:
 | LLM chat (main) | 500ms–5s | Network + model size |
 | LLM chat (fast) | 200ms–2s | Learning Loop |
 | FTS5 search | <10ms | SQLite index |
+| Vector search | <50ms | ChromaDB + local embed |
+| Graph traversal | <20ms | CogDB triple-store |
 | Tool execution | varies | Bash/Python/network |
 | Learning Loop | +500ms–2s | Post-turn overhead |
 
@@ -357,21 +401,20 @@ All via environment variables or `.env`:
 2. Instantiate `Agent` per user/session
 3. Call `agent.run_once(user_input)`
 
-### Adding Memory Layers
-- Not recommended (12 is intentional constraint)
-- Would require schema migration + retro prompt update
+### Adding Memory Stores
+- Not recommended without understanding the sync pipeline
+- Would require updates to `MemorySync`, `HybridRetriever`, and `TurnExtractor`
 
 ## Known Limitations
 
 1. **No memory expiration:** Facts accumulate indefinitely
-2. **No embeddings:** FTS5 only; semantic recall is lexical
-3. **Single-threaded agent:** Per-session serialization
-4. **No sandbox:** Tools run with full privileges
-5. **No multi-agent:** `delegate` is sequential sub-agent
+2. **Single-threaded agent:** Per-session serialization
+3. **No sandbox:** Tools run with full privileges
+4. **No multi-agent:** `delegate` is sequential sub-agent
 
 ## Testing Strategy
 
-- **Unit tests:** `tests/` (326 tests, all offline)
+- **Unit tests:** `tests/` (606 tests, all offline)
 - **Fake LLM:** `FakeLLMClient` for deterministic tests
 - **Temp storage:** `OBEKTCLAW_HOME=/tmp/...` for isolation
 - **No live tests:** Token cost; use smoke test script
@@ -391,7 +434,10 @@ All via environment variables or `.env`:
 - [x] Session management (list, show, export, resume)
 - [x] Context compaction at 85% pressure
 - [x] Memory cleanup (auto-expiry + contradiction detection)
-- [ ] Embeddings-based recall (optional, degrades to FTS5)
+- [x] Embeddings-based recall (ChromaDB + sentence-transformers)
+- [x] Graph memory (CogDB entity/relationship store)
+- [x] Hybrid retrieval (vector + graph + ranking)
+- [ ] Multi-agent orchestration (parallel delegate)
 - [ ] Multi-agent orchestration (parallel delegate)
 - [ ] HTTP MCP transport
 - [ ] Sandboxed tool execution (opt-in)

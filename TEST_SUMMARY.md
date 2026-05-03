@@ -54,14 +54,16 @@ This document summarizes the comprehensive test suite and improvements added to 
 | `tests/test_learning_missing.py` | 4 | Learning loop errors |
 | `tests/test_config_missing.py` | 3 | Config error cases |
 
-**Total: 333 tests across 27 test files**
+**Total: 606 tests across 27+ test files**
 
 ## Key Improvements to Core Code
 
-### 1. Enhanced RETRO_SYSTEM Prompt (`obektclaw/learning.py`)
+### 1. Enhanced EXTRACTION_PROMPT (`obektclaw/post_turn.py`)
 Added explicit guidance to prevent junk facts and layer misclassification:
 - **What to EXCLUDE**: File paths, counts, temporary state
 - **What to INCLUDE**: Preferences, environment info, project structure
+- **Entity extraction**: Tools, concepts, environments, projects, people, workflows
+- **Relation extraction**: User preferences, dependencies, ownership
 - **Layer descriptions**: All 12 layers now have one-line descriptions
 - **Layer assignment guidance**: Clear rules for which layer to use
 
@@ -82,7 +84,7 @@ CLI command: `python -m obektclaw memory cleanup`
 - Deletes identified facts from all categories
 - Provides before/after feedback
 
-### 5. Retro JSONL Logging (`obektclaw/learning.py`)
+### 5. Extraction JSONL Logging (`obektclaw/post_turn.py`)
 - Every Learning Loop iteration logged to `~/.obektclaw/logs/learning-YYYY-MM-DD.jsonl`
 - Includes timestamp and full retro JSON
 - Silent failure on logging errors
@@ -114,10 +116,10 @@ All tests should pass.
 
 | Component | Tests | Status |
 |-----------|-------|--------|
-| Storage (SQLite + FTS5) | 24 | ✅ Complete |
+| Storage (SQLite + FTS5 + ChromaDB + CogDB) | 24 | ✅ Complete |
 | Skills (markdown system) | 38 | ✅ Complete |
 | Agent (ReAct loop) | 26 | ✅ Complete |
-| Learning Loop | 22 | ✅ Complete |
+| Learning Loop / Turn Extraction | 22 | ✅ Complete |
 | LLM Client | 15 | ✅ Complete |
 | Config | 12 | ✅ Complete |
 | Tools | 43 | ✅ Complete |
@@ -133,6 +135,8 @@ All changes respect the principles from AGENTS.md:
 - ✅ Skill files on disk remain source of truth
 - ✅ Memory stays local (no telemetry)
 - ✅ Single SQLite connection
+- ✅ Memory stays local (no telemetry)
+- ✅ Graph + vector stores work together via MemorySync
 - ✅ OpenAI-shaped LLM client
 - ✅ Tools as functions
 - ✅ Learning Loop fire-and-forget

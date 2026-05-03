@@ -23,12 +23,12 @@ A Hermes-style agent ships with the harness built-in and **arranges for the agen
 
 ## What We Built
 
-obektclaw is a **complete, minimal reproduction** of the Hermes Agent concept in ~2,900 lines of Python. It implements all five core components:
+obektclaw is a **complete, minimal reproduction** of the Hermes Agent concept in ~4,700 lines of Python. It implements all five core components:
 
 | Component | Implementation | Lines |
 |-----------|----------------|-------|
-| Learning Loop | `obektclaw/learning.py` | ~150 |
-| Three-Layer Memory | `obektclaw/memory/` | ~400 |
+| Learning Loop | `obektclaw/post_turn.py` | ~380 |
+| Automatic Memory | `obektclaw/memory/` | ~800 |
 | Self-Evolving Skills | `obektclaw/skills/` | ~250 |
 | 16 Built-in Tools + MCP | `obektclaw/tools/`, `obektclaw/mcp.py` | ~600 |
 | Multi-Platform Gateway | `obektclaw/gateways/` | ~300 |
@@ -49,17 +49,20 @@ Plus: agent core, config, LLM client, test suite (235 tests).
 
 **Why it matters:** Users can **read, edit, and audit** their agent's skills. No black box.
 
-### 2. FTS5-Only Recall (No Embeddings)
+### 2. Hybrid Recall (Vector + Graph + FTS5)
 
-**Prior art:** Vector databases, embeddings, semantic search.
+**Prior art:** Vector-only (FAISS, Pinecone) or lexical-only (FTS5) recall.
 
-**Our approach:** SQLite FTS5 with porter stemming + query sanitization.
+**Our approach:** Three complementary retrieval systems:
+- **ChromaDB vector search** — Semantic similarity with local embeddings (`all-MiniLM-L6-v2`)
+- **CogDB graph traversal** — Follows entity relationships (user → prefers → httpx)
+- **SQLite FTS5** — Fast lexical fallback for exact matches
 
 **Why it matters:**
-- **Zero new dependencies** (no FAISS, no Pinecone, no torch)
-- **Deterministic** (no embedding drift, no ANN approximation)
-- **Fast enough** (<10ms queries)
-- **Degrades gracefully** (can add embeddings later as optional layer)
+- **Semantic + relational** — Vector finds "httpx is an HTTP client"; graph knows "user prefers httpx over requests"
+- **Fully local** — Embeddings run on CPU, no API calls for retrieval
+- **Deterministic ranking** — Multi-factor scoring (similarity, confidence, recency, graph proximity, category)
+- **Transparent to agent** — Agent never calls memory tools; context injected automatically
 
 ### 3. 12-Layer User Model (Honcho-Inspired)
 
@@ -206,10 +209,10 @@ Added explicit guidance to prevent junk facts:
 | Feature | obektclaw | LangChain | AutoGen | CrewAI |
 |---------|-------------|-----------|---------|--------|
 | Self-improving skills | ✓ (markdown) | ✗ | ✗ | ✗ |
-| 3-layer memory | ✓ | △ (custom) | ✗ | ✗ |
+| Automatic memory (graph + vector) | ✓ | △ (custom) | ✗ | ✗ |
 | Learning Loop | ✓ (every turn) | ✗ | ✗ | ✗ |
 | MCP support | ✓ | ✗ | ✗ | ✗ |
-| FTS5 recall | ✓ | ✗ (vectors) | ✗ | ✗ |
+| Hybrid recall (vector + graph + FTS5) | ✓ | ✗ (vectors only) | ✗ | ✗ |
 | Lines of code | ~2,900 | ~100k+ | ~50k+ | ~20k+ |
 | Dependencies | 4 | 50+ | 30+ | 20+ |
 | Editable skills | ✓ (vim) | ✗ | ✗ | ✗ |
@@ -219,7 +222,7 @@ Added explicit guidance to prevent junk facts:
 
 1. **Complete implementation of the Hermes thesis** in minimal code
 2. **Markdown skills on disk** (not DB, not code)
-3. **FTS5-only recall** (no embeddings dependency)
+3. **Hybrid recall** (vector + graph + FTS5 — no cloud dependencies)
 4. **12-layer user model** (forced abstraction)
 5. **Fire-and-forget Learning Loop** (every turn, cheap)
 6. **MCP auto-load** (plug-and-play tools)
@@ -251,11 +254,11 @@ python -m obektclaw chat
 ## Future Research Directions
 
 1. **Long-horizon evaluation:** Does agent actually improve over 50+ turns?
-2. **Embeddings vs FTS5:** When does semantic recall beat lexical?
+2. **Long-horizon evaluation:** Does automatic memory actually improve answers over 50+ turns?
 3. **Multi-agent delegation:** Fan-out sub-agents safely?
 4. **Memory hygiene:** Auto-expiry + contradiction detection
 5. **Sandboxed execution:** Opt-in security for untrusted users
 
 ## Conclusion
 
-obektclaw proves that a **self-improving agent harness** can be built in ~2,900 lines without heavy dependencies. The novelty is not in individual components (FTS5, markdown, ReAct loop are all known) but in their **integration into a coherent, minimal system** that embodies the Hermes thesis: **the agent weaves its own harness**.
+obektclaw proves that a **self-improving agent harness** can be built in ~4,700 lines. The novelty is not in individual components (FTS5, markdown, ReAct loop, vector search, graph databases are all known) but in their **integration into a coherent, minimal system** where memory is fully automatic — the agent never calls memory tools, yet relevant context is injected transparently via hybrid retrieval. This embodies the Hermes thesis: **the agent weaves its own harness**.

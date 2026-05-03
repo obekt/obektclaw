@@ -4,13 +4,13 @@
 
 **obektclaw** is a self-improving AI agent that weaves its own harness. It's a minimal (~4,700 lines), complete implementation of the Nous Research Hermes Agent concept with:
 
-- 🧠 Three-layer memory (session + persistent + 12-layer user model)
+- 🧠 Automatic memory (graph + vector + hybrid retrieval + 12-layer user model)
 - 📚 Self-improving skills (markdown files that auto-create and improve)
 - 🛠️ 16 built-in tools + MCP bridge
 - 🔄 Learning Loop (retrospects after every turn)
 - 💬 CLI + Telegram gateways
 - 📋 Session management (list, show, export, resume)
-- ✅ 326 tests (all offline)
+- ✅ 606 tests (all offline)
 
 ## Files Created/Updated
 
@@ -53,15 +53,15 @@ obektclaw/
 │   ├── __main__.py      # CLI dispatcher
 │   ├── agent.py         # ReAct loop + session resume
 │   ├── sessions.py      # Session management, export, resume
-│   ├── learning.py      # Learning Loop
+│   ├── post_turn.py     # Turn extraction (entities, relations, facts, skills)
 │   ├── llm.py           # OpenAI-compatible client
 │   ├── config.py        # Configuration
 │   ├── mcp.py           # MCP bridge
-│   ├── memory/          # 3-layer memory
+│   ├── memory/          # Automatic memory (graph + vector + SQLite)
 │   ├── skills/          # Markdown skills
 │   ├── tools/           # 16 built-in tools
 │   └── gateways/        # CLI + Telegram
-├── tests/               # 326 tests
+├── tests/               # 606 tests
 ├── bundled_skills/      # 3 starter skills
 ├── docs/                # Architecture + novelty
 ├── .gitignore           # Secrets excluded
@@ -74,7 +74,7 @@ obektclaw/
 ## Test Results
 
 ```
-326 passed in 0.65s
+606 passed in 0.67s
 ```
 
 All tests pass. No live LLM calls (fake LLM clients).
@@ -129,7 +129,7 @@ python -m pytest
 ## Novel Contributions
 
 1. **Markdown skills on disk** — Editable with vim, git-trackable
-2. **FTS5-only recall** — No embeddings dependency
+2. **Hybrid recall** — Vector (ChromaDB) + graph (CogDB) + FTS5, all local
 3. **12-layer user model** — Forced abstraction
 4. **Fire-and-forget Learning Loop** — Every turn, cheap
 5. **MCP auto-load** — Plug-and-play tools
@@ -150,7 +150,7 @@ python -m pytest
 
 ### Future Development
 1. Memory cleanup (auto-expiry)
-2. Embeddings-based recall (optional)
+2. ~~Embeddings-based recall~~ ✅ Done (ChromaDB + sentence-transformers)
 3. Multi-agent orchestration
 4. HTTP MCP transport
 5. Sandboxed execution (opt-in)
@@ -163,10 +163,10 @@ python -m pytest
 git add .
 git commit -m "Initial release: obektclaw v0.1.0
 
-A minimal, self-improving AI agent (~2,900 lines).
+A minimal, self-improving AI agent (~4,700 lines).
 
 Features:
-- Three-layer memory
+- Automatic memory (graph + vector + hybrid retrieval + 12-layer user model)
 - Self-improving markdown skills
 - 16 built-in tools + MCP bridge
 - Learning Loop

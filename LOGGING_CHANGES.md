@@ -52,7 +52,7 @@ The user-facing CLI output (Rich panels, banners, setup wizard) should stay as-i
 |------|--------|
 | `obektclaw/logging_config.py` | **New** — logger factory, JSON formatter, RotatingFileHandler |
 | `obektclaw/agent.py` | Added `log` import; replaced 3 `print()` calls with structured logs; added logs for tool calls, compaction, model switching |
-| `obektclaw/learning.py` | Added `log` import; added logs for learning loop start/retro success/failure |
+| `obektclaw/post_turn.py` | Added `log` import; added logs for extraction start/success/failure |
 | `obektclaw/llm.py` | Added `log` import; added logs for API calls, retries, exhaustion |
 | `obektclaw/mcp.py` | Added `log` import; replaced 1 `print()` with error log |
 | `obektclaw/skills/manager.py` | Added `log` import; added logs for skill create, improve, record_use |

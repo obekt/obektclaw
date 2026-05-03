@@ -6,7 +6,7 @@
 
 obektclaw is a minimal, complete implementation of the [Nous Research Hermes Agent](https://github.com/NousResearch/Hermes) concept — except it actually learns from every conversation. It features:
 
-- 🧠 **Three-layer memory** (session + persistent + 12-layer user model)
+- 🧠 **Automatic memory** — graph + vector stores with semantic search, fully transparent to the agent
 - 📚 **Self-improving skills** (markdown files that auto-create and improve)
 - 🛠️ **16 built-in tools** + MCP bridge for external tools
 - 🔄 **Learning Loop** (retrospects after every turn, learns from experience)
@@ -41,7 +41,7 @@ On first run, you'll see a guided setup wizard. After that, just `python -m obek
 | | obektclaw | OpenClaw | NanoClaw |
 |---|---|---|---|
 | **Codebase** | ~4,700 lines of Python. Read it in an afternoon. | 50k+ lines. Good luck auditing that. | Containers + Anthropic SDK. You're renting, not owning. |
-| **Memory** | 3-layer: session + persistent facts + 12-trait user model | Basic conversation history | Session-only, no user modeling |
+| **Memory** | Automatic: graph (CogDB) + vector (ChromaDB) + semantic retrieval + 12-trait user model | Basic conversation history | Session-only, no user modeling |
 | **Self-improvement** | Learning Loop runs *every turn* — extracts facts, updates your model, creates & improves skills automatically | Manual skill creation | No skill system |
 | **Skills** | Plain markdown on disk. `vim` them. `git` them. The agent rewrites them as it learns. | Plugin system (code-heavy) | N/A |
 | **Dependencies** | `pip install` — 4 runtime deps. No Docker, no Node, no Rust toolchain. | Heavy dependency tree | Requires Docker containers |
@@ -72,21 +72,41 @@ description: Clean a CSV file and import it into SQLite
 
 You can edit them with `vim`, track them with git, and the agent improves them after each use.
 
-### Three-Layer Memory
+### Automatic Memory System
 
-1. **Session memory** — Conversation history (FTS5 searchable)
-2. **Persistent facts** — Long-term knowledge about you
-3. **User model** — 12-layer profile (technical level, goals, preferences, etc.)
+Memory is **fully automatic** — the agent never calls memory tools. Relevant context is injected transparently during system prompt assembly via the `HybridRetriever`.
+
+**How it works:**
+
+1. **Graph memory (CogDB)** — Stores entities and relationships as a knowledge graph  
+   *Example:* `user --prefers--> httpx`, `project --deployed_on--> Hetzner`
+
+2. **Vector memory (ChromaDB)** — Semantic search across facts, conversation history, skills, and entities using local embeddings (`all-MiniLM-L6-v2`, 384-dim, ~80MB)
+
+3. **Hybrid retriever** — For every user message:  
+   - Vector search for relevant facts and skills  
+   - Graph traversal from entities mentioned in those facts  
+   - Graph query for user preferences and dislikes  
+   - Multi-factor ranking (semantic similarity, confidence, recency, graph proximity, category priority)  
+   - Selects top items within a 2000-token budget
+
+4. **Session memory (SQLite + FTS5)** — Conversation history with full-text search
+
+5. **User model (SQLite)** — 12-layer profile (technical level, goals, preferences, etc.)
+
+**Extraction pipeline** (`post_turn.py`): After every turn, a fast LLM call extracts entities, relations, facts, user model updates, and skill ideas from the conversation. These are persisted to CogDB and ChromaDB automatically. Extraction logs are written to `$OBEKTCLAW_HOME/logs/extraction-YYYY-MM-DD.jsonl` for debugging.
 
 ### Learning Loop
 
 After every turn, a fast LLM call extracts:
-- New facts to remember
-- User model updates
-- New skills to create
-- Existing skills to improve
+- **Entities** — tools, concepts, environments, projects, people, workflows (stored in CogDB)
+- **Relations** — user preferences, dependencies, ownership (stored in CogDB)
+- **Facts** — durable knowledge with category and confidence (stored in ChromaDB)
+- **User model updates** — refinements to the 12-layer profile
+- **New skills** — generalizable patterns worth saving
+- **Skill improvements** — append new learnings to existing skills
 
-All applied immediately. Logged to JSONL for debugging.
+All applied immediately. Extraction logs are written to JSONL for debugging.
 
 ### MCP Bridge
 
@@ -113,7 +133,7 @@ Tools auto-register as `mcp__filesystem__read_file`, etc.
 |---------|-------------|
 | `/help` | Show detailed help |
 | `/skills` | List known skills |
-| `/memory <q>` | Search persistent memory |
+| `/memory <q>` | Search persistent memory (FTS5 fallback) |
 | `/traits` | Show your user model |
 | `/sessions` | Browse and resume past sessions |
 | `/setup` | Configuration wizard |
@@ -143,7 +163,7 @@ python -m obektclaw sessions resume <id>       # Resume a past session in CLI
 python -m obektclaw skill list     # List skills
 python -m obektclaw skill show csv-to-database
 python -m obektclaw memory status  # Memory health check
-python -m obektclaw memory search "httpx"
+python -m obektclaw memory search "httpx"  # Search across all memory stores
 python -m obektclaw traits         # Show user model
 python -m obektclaw --help         # All commands
 ```
@@ -172,6 +192,12 @@ All via environment variables or `.env` file:
 | `OBEKTCLAW_CONTEXT_WINDOW` | auto | Context window size (e.g. `200000` for Claude) |
 | `OBEKTCLAW_TG_TOKEN` | (empty) | Telegram bot token |
 
+**Memory paths** (derived from `OBEKTCLAW_HOME`):
+- `~/.obektclaw/obektclaw.db` — SQLite (sessions, messages, facts, user model)
+- `~/.obektclaw/chroma/` — ChromaDB vector store
+- `~/.obektclaw/cog-home/` — CogDB graph store
+- `~/.obektclaw/models/` — Cached embedding model (`sentence-transformers`)
+
 That's it. No separate extraction LLM config, no embedding model tuning, no graph database knobs. The agent just works.
 
 See `.env.example` for the full template.
@@ -199,8 +225,8 @@ obektclaw/
 ├── obektclaw/              # Core package
 │   ├── agent.py         # ReAct loop + session resume
 │   ├── sessions.py      # Session management, export, resume
-│   ├── post_turn.py     # Learning Loop (extraction + memory)
-│   ├── memory/          # 3-layer memory
+│   ├── post_turn.py     # Turn extraction (entities, relations, facts, skills)
+│   ├── memory/          # Automatic memory (graph + vector + SQLite)
 │   ├── skills/          # Markdown skill system
 │   ├── tools/           # 16 built-in tools
 │   ├── mcp.py           # MCP bridge
@@ -233,7 +259,10 @@ MIT — see LICENSE file.
 - [x] Session management (list, show, export, resume)
 - [x] Context compaction at 85% pressure
 - [x] Memory cleanup (auto-expiry + contradiction detection)
+- [x] Automatic memory extraction (entities, relations, facts)
 - [x] Embeddings-based recall (ChromaDB + sentence-transformers)
+- [x] Graph memory (CogDB entity/relationship store)
+- [x] Hybrid retrieval (vector + graph + ranking)
 - [ ] Multi-agent orchestration (parallel delegate)
 - [ ] HTTP MCP transport
 - [ ] Sandboxed tool execution (opt-in)

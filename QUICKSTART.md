@@ -137,9 +137,13 @@ Connect external tools via MCP (Model Context Protocol):
 
 ## What Makes Obektclaw Special?
 
-### 🧠 Three-Layer Memory
-- **Session memory**: Our conversation history
-- **Persistent facts**: Long-term knowledge (survives restarts)
+### 🧠 Automatic Memory System
+Memory is fully automatic — the agent never calls memory tools.
+
+- **Graph memory (CogDB)**: Entities and relationships (e.g., `user --prefers--> httpx`)
+- **Vector memory (ChromaDB)**: Semantic search across facts, conversations, skills, entities
+- **Hybrid retriever**: Automatically injects relevant context into every system prompt
+- **Session memory**: Conversation history (SQLite + FTS5)
 - **User model**: 12-layer profile of your preferences and goals
 
 ### 🛠️ 16 Built-in Tools
@@ -154,10 +158,11 @@ Connect external tools via MCP (Model Context Protocol):
 - Improves existing skills after each use
 - Markdown-based (you can edit them!)
 
-### 🔍 FTS5 Search
-- Full-text search across all memories
-- Stemming and fuzzy matching
-- Finds relevant context automatically
+### 🔍 Search & Retrieval
+- **Semantic search** (ChromaDB + local embeddings) — finds conceptually related content
+- **Graph traversal** (CogDB) — follows relationships between entities
+- **FTS5 fallback** (SQLite) — lexical search across messages and facts
+- All retrieval is automatic — no `/memory` commands needed
 
 ## Configuration
 

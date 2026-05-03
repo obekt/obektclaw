@@ -14,13 +14,13 @@ Map of the five components → where they live in this repo:
 
 | Orange book §                          | Component                  | Code                              |
 | -------------------------------------- | -------------------------- | --------------------------------- |
-| §03 The Learning Loop                  | Auto-retrospection         | `obektclaw/learning.py`              |
-| §04 Three-Layer Memory                 | session / persistent / user model | `obektclaw/memory/`             |
+| §03 The Learning Loop                  | Auto-retrospection         | `obektclaw/post_turn.py`             |
+| §04 Automatic Memory                   | graph (CogDB) + vector (ChromaDB) + SQLite session/user model + HybridRetriever | `obektclaw/memory/`             |
 | §05 Skill System                       | Self-improving markdown skills | `obektclaw/skills/manager.py`    |
 | §06 40+ Tools + MCP                    | Tool registry, built-ins, MCP bridge | `obektclaw/tools/`, `obektclaw/mcp.py` |
 | §09 Multi-Platform Access              | CLI + Telegram gateways    | `obektclaw/gateways/`                |
 
-The orange book's five-step Learning Loop (Curate → Create Skill → Self-Improve → FTS5 Recall → User Modeling) is implemented as: **one fast-model JSON retrospection** at the end of every turn (`learning.py`) that emits `facts`, `user_model_updates`, `new_skill`, and `skill_improvement`. FTS5 recall is not a separate step — it happens at *prompt build* time (`agent._compose_system_prompt`).
+The orange book's five-step Learning Loop (Curate → Create Skill → Self-Improve → Recall → User Modeling) is implemented as: **one fast-model JSON extraction** at the end of every turn (`post_turn.py`) that emits `entities`, `relations`, `facts`, `user_model_updates`, `new_skill`, and `skill_improvement`. Recall is not a separate step — it happens at *prompt build* time via `HybridRetriever` (`agent._compose_system_prompt`).
 
 ---
 
@@ -47,7 +47,7 @@ obektclaw/
     ├── agent.py               ← The ReAct loop. Single-threaded, per-session.
     │                           Context compaction at 85% pressure. Session resume support.
     ├── sessions.py            ← Session management: list, show, export (md/json), resume
-    ├── learning.py            ← The Learning Loop (post-turn retrospection)
+    ├── post_turn.py           ← Turn extraction (entities, relations, facts, skills)
     ├── mcp.py                 ← Minimal stdio JSON-RPC MCP client
     ├── model_context.py       ← Context window detection + runtime model switching
     │
@@ -55,8 +55,14 @@ obektclaw/
     │   ├── __init__.py
     │   ├── store.py           ← SQLite + FTS5. SCHEMA constant has all DDL. Thread-safe.
     │   ├── session.py         ← Layer 1 — episodic; messages + FTS5 search
-    │   ├── persistent.py      ← Layer 2 — semantic; key/value facts by category
-    │   └── user_model.py      ← 12 Honcho-style identity layers
+    │   ├── persistent.py      ← Layer 2 (legacy) — semantic; key/value facts by category
+    │   ├── user_model.py      ← 12 Honcho-style identity layers
+    │   ├── graph_memory.py    ← CogDB-backed entity/relationship graph storage
+    │   ├── vector_memory.py   ← ChromaDB-backed semantic search (facts, memories, skills, entities)
+    │   ├── embedder.py        ← Local sentence-transformers embeddings (all-MiniLM-L6-v2)
+    │   ├── hybrid_retriever.py← Automatic context assembly (vector + graph + ranking)
+    │   ├── ranking.py         ← Multi-factor relevance scoring for context selection
+    │   └── memory_sync.py     ← Cross-store synchronization (CogDB ↔ ChromaDB)
     │
     ├── skills/
     │   ├── __init__.py
@@ -89,21 +95,29 @@ Everything goes under `$OBEKTCLAW_HOME` (default `~/.obektclaw`):
 ```
 $OBEKTCLAW_HOME/
 ├── obektclaw.db          ← single SQLite file with WAL + FTS5 indexes
+├── chroma/            ← ChromaDB vector store (facts, memories, skills, entities)
+├── cog-home/          ← CogDB graph store (entities, relationships)
+├── models/            ← Cached sentence-transformers model (~80MB)
+│   └── sentence-transformers/
 ├── skills/            ← markdown skill files; this is the source of truth
 │   ├── csv-to-database.md
 │   ├── deployment-checklist.md
 │   ├── getting-to-know-you.md
 │   └── <auto-created skills>
-└── logs/              ← currently unused; reserved for the Learning Loop diagnostics
+└── logs/              ← extraction JSONL logs for debugging
 ```
 
 The SQLite schema (full DDL is in `obektclaw/memory/store.py::SCHEMA`):
 
 - `sessions(id, started_at, ended_at, gateway, user_key)`
 - `messages(id, session_id, ts, role, content, tool_name, meta_json)` + `messages_fts` (porter unicode61) + AI/AD/AU triggers
-- `facts(id, key, value, category, confidence, created_at, updated_at)` UNIQUE on `(category, key)` + `facts_fts` + triggers
+- `facts(id, key, value, category, confidence, created_at, updated_at)` UNIQUE on `(category, key)` + `facts_fts` + triggers (legacy mirror; new facts go to ChromaDB)
 - `user_traits(layer PK, value, evidence, updated_at)` — only 12 rows max, one per layer
 - `skills(name PK, description, body, use_count, success_count, created_at, updated_at)` + `skills_fts` + triggers (the markdown files on disk are authoritative; the table is a mirror to enable FTS)
+
+**New stores (outside SQLite):**
+- **ChromaDB** (`$OBEKTCLAW_HOME/chroma/`) — Collections: `facts`, `memories`, `skills`, `entities`. Uses local `all-MiniLM-L6-v2` embeddings (384-dim).
+- **CogDB** (`$OBEKTCLAW_HOME/cog-home/`) — Triple-store graph via `cog.torque.Graph`. Entities and relations stored as triples.
 
 `Store` keeps **one shared connection** behind a `RLock`. Do not open extra connections — use `Store.execute / fetchall / fetchone`. WAL mode is on so concurrent readers from outside processes (e.g. `sqlite3` CLI) work fine.
 
@@ -119,9 +133,14 @@ The SQLite schema (full DDL is in `obektclaw/memory/store.py::SCHEMA`):
 2. Build a fresh system prompt from:
    - `SYSTEM_PROMPT` constant
    - `user_model.render_for_prompt()` — all 12 layers
-   - Top persistent facts (`persistent.all_top(per_category=4)`)
-   - FTS5-recalled skills relevant to *this user input* (`skills.search(user_text, limit=4)`)
-   - FTS5-recalled prior message snippets (`session.search_history(user_text, limit=4)`)
+   - **Automatic memory retrieval** (`HybridRetriever.retrieve_for_prompt(user_text, max_tokens=2000)`):
+     - Vector search for facts, skills (ChromaDB)
+     - Graph traversal for connected entities (CogDB)
+     - User preferences/dislikes from graph
+     - Multi-factor ranking and selection within token budget
+   - All available skills list (capped at 30, for self-discovery)
+   - FTS5-recalled skills relevant to *this user input* (`skills.search(user_text, limit=4)`) — augments vector search
+   - FTS5-recalled prior message snippets (`session.search_history(user_text, limit=4)`) — augments vector search
 3. Append the last ~30 in-session messages (user + assistant only — raw tool turns are dropped because the model has the tool result inline anyway).
 4. Call `llm.chat(messages, tools=registry.to_openai_tools())`.
 5. If the response has `tool_calls`:
@@ -129,30 +148,40 @@ The SQLite schema (full DDL is in `obektclaw/memory/store.py::SCHEMA`):
    - For each call: invoke `registry.call`, append `{"role":"tool","tool_call_id":id,"content":...}`, also write the tool result into session memory.
    - Loop.
 6. If no `tool_calls`: persist the assistant text to session memory and break.
-7. Run `LearningLoop.run(Turn(...))` (catches its own exceptions).
+7. Run `TurnExtractor.extract(Turn(...))` from `post_turn.py` (catches its own exceptions).
 
 `Agent` is **synchronous and not thread-safe**. The Telegram gateway gives each chat_id its own `_ChatWorker` thread with its own `Agent` instance, and serializes messages within a chat via a Queue.
 
 ---
 
-## 5. The Learning Loop in detail
+## 5. The Learning Loop (Turn Extraction) in detail
 
-`obektclaw/learning.py::LearningLoop.run(turn)` is invoked after every non-trivial turn (skipped if `len(user_text) < 12 and turn.tool_steps == 0`). It:
+`obektclaw/post_turn.py::TurnExtractor.extract(turn)` is invoked after every non-trivial turn (skipped if `len(user_text) < 12 and turn.tool_steps == 0`). It:
 
 1. Renders the current user model.
 2. Sends one structured prompt to `llm.chat_json` (fast model) with the schema:
    ```json
    {
-     "facts": [{"category", "key", "value", "confidence"}],
+     "entities": [{"name", "type", "confidence", "properties"}],
+     "relations": [{"subject", "predicate", "object", "confidence"}],
+     "facts": [{"content", "category", "confidence"}],
      "user_model_updates": [{"layer", "value", "evidence"}],
      "new_skill": {"name", "description", "body"} | null,
      "skill_improvement": {"name", "append"} | null,
      "notes": "..."
    }
    ```
-3. Applies each piece via the existing `PersistentMemory`, `UserModel`, and `SkillManager` APIs. Failures are silently swallowed per item (defensive — a malformed JSON shouldn't crash a session).
+3. Applies each piece via the memory APIs:
+   - `entities[]` → `GraphMemory.add_entity()` → synced to ChromaDB via `MemorySync`
+   - `relations[]` → `GraphMemory.add_relation()`
+   - `facts[]` → `VectorMemory.add_fact()` → linked to entities via `MemorySync`
+   - `user_model_updates[]` → `UserModel.set()`
+   - `new_skill` / `skill_improvement` → `SkillManager` + synced to ChromaDB
+4. Persists the full extraction JSON to `$OBEKTCLAW_HOME/logs/extraction-YYYY-MM-DD.jsonl`.
 
-The retro **uses the fast model** (`OBEKTCLAW_LLM_FAST_MODEL`). On Anthropic that means Haiku; on the dashscope qwen endpoint we currently set both fast and main to `qwen3-coder-plus`.
+Failures are silently swallowed per item (defensive — a malformed JSON shouldn't crash a session).
+
+The extraction **uses the fast model** (`OBEKTCLAW_LLM_FAST_MODEL`). On the dashscope qwen endpoint we currently set both fast and main to `qwen3-coder-plus`.
 
 ---
 
@@ -167,7 +196,7 @@ The retro **uses the fast model** (`OBEKTCLAW_LLM_FAST_MODEL`). On Anthropic tha
 | `bash`           | exec     | `subprocess.run(shell=True, cwd=workdir)` with timeout                   |
 | `exec_python`    | exec     | Writes a tempfile, runs `python3 file.py`                                |
 | `web_fetch`      | web      | httpx GET, optional HTML strip, 400KB cap                                |
-| `memory_search`  | memory   | FTS5 across messages + facts                                             |
+| `memory_search`  | memory   | FTS5 across messages + facts (legacy fallback)                           |
 | `memory_set_fact`| memory   | Upsert into `facts` table                                                |
 | `memory_forget_fact` | memory | Delete a fact                                                          |
 | `user_model_set` | memory   | Upsert one of the 12 user-model layers                                   |
@@ -256,7 +285,7 @@ What I ran (3 turns, single agent instance, single session):
 
 ### 10.1 Learning Loop retro is over-eager
 
-The retro prompt in `learning.py::RETRO_SYSTEM` says "things that should still be true a week from now" but qwen3-coder-plus saved `csv_file_path = /tmp/x.csv` and `obektclaw_dir_python_files_count = 7 python files in obektclaw/ directory` as facts. Both are ephemeral.
+The extraction prompt in `post_turn.py::EXTRACTION_PROMPT` says "things that should still be true a week from now" but qwen3-coder-plus saved `csv_file_path = /tmp/x.csv` and `obektclaw_dir_python_files_count = 7 python files in obektclaw/ directory` as facts. Both are ephemeral.
 
 **Fix**: add 2-3 few-shot examples to `RETRO_SYSTEM` showing what to *exclude* (file paths from one-off questions, counts, transient state). Test with at least 5 different turn types to confirm no regression.
 
@@ -282,13 +311,9 @@ The orange book §04 explicitly notes Hermes itself doesn't have auto-expiration
 
 Imported as `from . import exec as execmod` in `registry.py`. Works, but it's awkward. Rename to `tools/run.py` or `tools/execution.py`.
 
-### 10.7 No tests
+### 10.7 Tests exist ✅
 
-There is no `tests/` directory. The smoke tests I ran were one-off `python -c` blobs. **Fix**: add `tests/` with at least:
-- `test_store.py` — schema, FTS5 sanitization, upsert/conflict
-- `test_skills.py` — frontmatter parsing, slugify, create/improve roundtrip
-- `test_agent_offline.py` — fake LLMClient, verify the loop dispatches tools and writes session memory correctly without hitting the network
-- `test_learning_loop.py` — fake LLM that returns canned JSON, verify facts/user_model/skills get persisted
+The `tests/` directory has **606 tests** covering storage, skills, agent loop, learning loop, tools, sessions, and gateways. All offline (fake LLM).
 
 ### 10.8 Tools run with the caller's full privileges
 
@@ -409,13 +434,15 @@ If you're refactoring or extending, please keep these properties:
 
 If I were the next agent picking this up, I would do these in order:
 
-1. **Add `tests/`** with a `FakeLLMClient` and the four test files in §10.7. Wire `pytest` into requirements. ~2 hours.
-2. **Tighten `RETRO_SYSTEM`** to fix §10.1 and §10.2 (junk facts + layer misclassification). Validate by running a 10-turn synthetic conversation and inspecting the post-state. ~1 hour.
-3. **Auto-load `mcp.json`** (§10.3). Test by wiring up `@modelcontextprotocol/server-filesystem` against a temp dir. ~1 hour.
-4. **Always-include skills index** in the system prompt (§10.4). One-line per skill, capped. Verify token usage stays under control with a `len()` assertion. ~30 min.
-5. **Add `python -m obektclaw memory cleanup`** (§10.5). Use the fast model. ~1 hour.
-6. **Persist retro JSONL** (§10.11) to make all of the above debuggable. ~30 min.
-7. Then start on the genuinely hard stuff: long-horizon evaluations (does the agent actually get smarter over 50 turns?), sub-agent delegation in earnest, and a non-trivial Skill that gets auto-improved across runs.
+1. ~~**Add `tests/`**~~ ✅ Done — 606 tests covering all components.
+2. ~~**Tighten `EXTRACTION_PROMPT`**~~ ✅ Done — exclusion examples + layer descriptions in `post_turn.py`.
+3. ~~**Auto-load `mcp.json`**~~ ✅ Done — `Agent.__init__` loads `~/.obektclaw/mcp.json` automatically.
+4. ~~**Always-include skills index**~~ ✅ Done — all skills listed in system prompt (capped at 30).
+5. ~~**Add `python -m obektclaw memory cleanup`**~~ ✅ Done — cleanup command uses fast LLM.
+6. ~~**Persist extraction JSONL**~~ ✅ Done — logs to `$OBEKTCLAW_HOME/logs/extraction-YYYY-MM-DD.jsonl`.
+7. **Long-horizon evaluation** — Does the agent actually get smarter over 50+ turns? Design a benchmark. ~1 day.
+8. **Sub-agent delegation in earnest** — Parallel delegate, result merging. ~1 day.
+9. **HTTP MCP transport** — Beyond stdio. ~4 hours.
 
 ---
 
@@ -446,4 +473,4 @@ If I were the next agent picking this up, I would do these in order:
 
 ## 18. One-paragraph summary you can paste to a fresh agent
 
-> obektclaw is a ~4,700-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), three-layer SQLite+FTS5 memory (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), a Learning Loop that runs structured retrospection after every turn (`obektclaw/learning.py`), and session management with export and resume (`obektclaw/sessions.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 333 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, tools, sessions, and gateways. Read `AGENTS.md` before changing anything.
+> obektclaw is a ~4,700-line Python implementation of the Hermes Agent concept (Nous Research orange book): a self-improving personal AI agent with a built-in "harness" that grows on its own. It has a synchronous ReAct loop (`obektclaw/agent.py`), automatic memory with graph (CogDB) + vector (ChromaDB) + hybrid retrieval (`obektclaw/memory/`), markdown-based self-improving skills (`obektclaw/skills/manager.py` + `bundled_skills/`), 16 built-in tools (`obektclaw/tools/`), a stdio MCP client bridge with auto-load (`obektclaw/mcp.py`), a Learning Loop that extracts entities, relations, facts, and skills after every turn (`obektclaw/post_turn.py`), and session management with export and resume (`obektclaw/sessions.py`). It works against any OpenAI-compatible endpoint — see `.env.example`. CLI and Telegram gateways exist (`obektclaw/gateways/`). 606 offline tests (`tests/`, fake LLM) cover storage, skills, agent loop, learning loop, tools, sessions, and gateways. Read `AGENTS.md` before changing anything.
